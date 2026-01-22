@@ -11,6 +11,7 @@
 	"scripts": {
 		"compile": "rimraf ./dist/ && ts-node ./config/esbuild.prod.ts",
 		"lint": "eslint",
+		"prettier:all": "prettier --write .",
 		"fix": "eslint --fix",
 		"build": "npm run compile && ts-node ./build/packaged.ts"
 	},
@@ -24,6 +25,7 @@
 		"ignore": "^7.0.3",
 		"jszip": "^3.10.1",
 		"lint-staged": "^16.2.3",
+		"prettier": "^3.8.1",
 		"rimraf": "^6.0.1",
 		"simple-git-hooks": "^2.13.1",
 		"ts-node": "^10.9.2",

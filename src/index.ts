@@ -127,14 +127,7 @@ async function ensureNgspiceLoaded(): Promise<void> {
 }
 
 async function readNetlist(): Promise<string> {
-	const fallback = [
-		'* simple rc',
-		'V1 in 0 DC 1',
-		'R1 in out 1k',
-		'C1 out 0 1u',
-		'.tran 1u 10u',
-		'.end',
-	].join('\n');
+	const fallback = ['* simple rc', 'V1 in 0 DC 1', 'R1 in out 1k', 'C1 out 0 1u', '.tran 1u 10u', '.end'].join('\n');
 	return fallback;
 }
 
@@ -168,15 +161,15 @@ export async function runNgspice(props?: any): Promise<void> {
 		await ensureNgspiceLoaded();
 		const Ngspice = (globalThis as any).Ngspice as (opts?: any) => Promise<any>;
 		debugLog('Ngspice loader found', typeof Ngspice === 'function');
-		const mainWasm = await readExtensionBinary(NGSPICE_MAIN_WASM)
-			?? (embeddedMainWasmBase64 ? base64ToBytes(embeddedMainWasmBase64) : undefined);
+		const mainWasm
+			= (await readExtensionBinary(NGSPICE_MAIN_WASM)) ?? (embeddedMainWasmBase64 ? base64ToBytes(embeddedMainWasmBase64) : undefined);
 		debugLog('main wasm from extension', Boolean(mainWasm));
 		const Module = await Ngspice({
 			wasmBinary: mainWasm,
 			locateFile: (path: string) => resolveUrl(path),
 		});
-		const sideWasm = await readExtensionBinary(NGSPICE_SIDE_WASM)
-			?? (embeddedSideWasmBase64 ? base64ToBytes(embeddedSideWasmBase64) : undefined);
+		const sideWasm
+			= (await readExtensionBinary(NGSPICE_SIDE_WASM)) ?? (embeddedSideWasmBase64 ? base64ToBytes(embeddedSideWasmBase64) : undefined);
 		debugLog('side wasm from extension', Boolean(sideWasm));
 		if (sideWasm) {
 			if (!Module.FS.analyzePath('/wasm').exists) {
@@ -197,9 +190,7 @@ export async function runNgspice(props?: any): Promise<void> {
 		sim.run();
 		const resultJson = sim.getResultJson();
 		console.log('[ngspice] result:', resultJson);
-		const preview = resultJson.length > 1000
-			? `${resultJson.slice(0, 1000)}... (truncated)`
-			: resultJson;
+		const preview = resultJson.length > 1000 ? `${resultJson.slice(0, 1000)}... (truncated)` : resultJson;
 		eda.sys_Dialog.showInformationMessage(`${preview}ngspice run complete`);
 	}
 	catch (e) {

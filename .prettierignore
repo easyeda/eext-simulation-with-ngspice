@@ -1,0 +1,4 @@
+/build/dist/
+wasm
+/dist/
+/node_modules/

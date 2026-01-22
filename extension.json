@@ -14,9 +14,7 @@
 		"url": ""
 	},
 	"categories": "Schematic",
-	"keywords": [
-		"Simulation"
-	],
+	"keywords": ["Simulation"],
 	"images": {
 		"logo": "./images/logo.png"
 	},

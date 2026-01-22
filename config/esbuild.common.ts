@@ -8,9 +8,7 @@ const rawPlugin: esbuild.Plugin = {
 		build.onResolve({ filter: /\?raw$/ }, (args) => {
 			const realPath = args.path.replace(/\?raw$/, '');
 			return {
-				path: path.isAbsolute(realPath)
-					? realPath
-					: path.join(args.resolveDir, realPath),
+				path: path.isAbsolute(realPath) ? realPath : path.join(args.resolveDir, realPath),
 				namespace: 'raw-file',
 			};
 		});
