@@ -25,5 +25,19 @@
 	"activationEvents": {},
 	"entry": "./dist/index",
 	"dependentExtensions": {},
-	"headerMenus": {}
+	"headerMenus": {
+		"sch": [
+			{
+				"id": "API SDK",
+				"title": "API SDK",
+				"menuItems": [
+					{
+						"id": "RunNgspice",
+						"title": "Run Ngspice",
+						"registerFn": "runNgspice"
+					}
+				]
+			}
+		]
+	}
 }
