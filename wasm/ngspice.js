@@ -28158,13 +28158,13 @@ function checkIncomingModuleAPI() {
 }
 
 var ASM_CONSTS = {
-  9162764: $0 => {
+  9162748: $0 => {
     if (!$0) {
       AL.alcErr = 40964;
       return 1;
     }
   },
-  9162812: $0 => {
+  9162796: $0 => {
     if (!AL.currentCtx) {
       err("alGetProcAddress() called without a valid context");
       return 1;
