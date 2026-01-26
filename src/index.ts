@@ -8,6 +8,36 @@ const NGSPICE_MAIN_WASM = 'wasm/ngspice.wasm';
 const NGSPICE_SIDE_WASM = 'wasm/libngspice.wasm';
 const DEBUG = true;
 
+type CCallReturnType = 'number' | 'string' | 'boolean' | 'array' | 'null' | null;
+
+interface NgspiceModule {
+	ccall?: (ident: string, returnType: CCallReturnType, argTypes: string[], args: any[]) => any;
+	FS: {
+		analyzePath: (path: string) => { exists: boolean };
+		mkdir: (path: string) => void;
+		writeFile: (path: string, data: Uint8Array) => void;
+	};
+	loadDynamicLibrary: (path: string, opts?: any) => Promise<any>;
+	NgSpiceWasm: new () => {
+		loadNetlist: (netlist: string) => void;
+		addProbeNode: (node: string, a: number, b: number, c: number) => void;
+		run: () => void;
+		getResultJson: () => string;
+	};
+}
+
+enum SpicePullEventType {
+	SIMULATE_NETLIST = 'SIMULATE_NETLIST',
+	VALIDATE_NETLIST = 'VALIDATE_NETLIST',
+}
+enum SpicePushEventType {
+	SIMULATION_RESULT = 'SIMULATION_RESULT',
+	VALIDATION_RESULT = 'VALIDATION_RESULT',
+	LOG_RESULT = 'LOG_RESULT',
+	ERROR_RESULT = 'ERROR_RESULT',
+}
+type NgspiceFactory = (opts?: any) => Promise<NgspiceModule>;
+
 function resolveUrl(path: string): string {
 	try {
 		if (typeof window !== 'undefined' && window.location?.href) {
@@ -132,14 +162,12 @@ async function readNetlist(): Promise<string> {
 }
 
 export function activate(status?: 'onStartupFinished', arg?: string): void {
-	console.log(`[ngspice][debug] ${status}`);
-
 	console.log('Extension activated with status:', status, 'and arg:', arg);
 	switch (status) {
 		case 'onStartupFinished':
-			eda.sch_Event.addSimulationEnginePullEventListener('sim-engine-monitor', 'all', async (eventType, props) => {
+			eda.sch_Event.addSimulationEnginePullEventListener('sim-engine-monitor', 'all', async (eventType: SpicePullEventType, props: any) => {
 				switch (eventType) {
-					case 'SESSION_START':
+					case SpicePullEventType.SIMULATE_NETLIST:
 						runNgspice(props);
 						break;
 				}
@@ -159,7 +187,7 @@ export async function runNgspice(props?: any): Promise<void> {
 	try {
 		debugLog('runNgspice start');
 		await ensureNgspiceLoaded();
-		const Ngspice = (globalThis as any).Ngspice as (opts?: any) => Promise<any>;
+		const Ngspice = (globalThis as any).Ngspice as NgspiceFactory;
 		debugLog('Ngspice loader found', typeof Ngspice === 'function');
 		const mainWasm
 			= (await readExtensionBinary(NGSPICE_MAIN_WASM)) ?? (embeddedMainWasmBase64 ? base64ToBytes(embeddedMainWasmBase64) : undefined);
@@ -183,19 +211,31 @@ export async function runNgspice(props?: any): Promise<void> {
 			loadAsync: true,
 		});
 		const sim = new Module.NgSpiceWasm();
-		const netlist = await readNetlist();
+		const netlist = typeof props?.netlist === 'string' && props.netlist.trim()
+			? props.netlist
+			: await readNetlist();
 		sim.loadNetlist(netlist);
-		sim.addProbeNode('5', 1, 1, 1);
-		sim.addProbeNode('1', 1, 1, 1);
+		const probeNodes = Array.isArray(props?.probeNodes) ? props.probeNodes : [];
+		for (const node of probeNodes) {
+			if (!node || typeof node !== 'object') {
+				continue;
+			}
+			const id = (node as any).ProbeNode;
+			if (id === undefined || id === null) {
+				continue;
+			}
+			const probeType = Number((node as any).ProbeType ?? 1);
+			const lowLevel = Number((node as any).LowLevel ?? 1);
+			const highLevel = Number((node as any).HighLevel ?? 1);
+			sim.addProbeNode(String(id), probeType, lowLevel, highLevel);
+		}
 		sim.run();
 		const resultJson = sim.getResultJson();
-		console.log('[ngspice] result:', resultJson);
-		const preview = resultJson.length > 1000 ? `${resultJson.slice(0, 1000)}... (truncated)` : resultJson;
-		eda.sys_Dialog.showInformationMessage(`${preview}ngspice run complete`);
+		eda.sch_SimulationEngine.pushData(SpicePushEventType.SIMULATION_RESULT, resultJson);
 	}
 	catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error('[ngspice] run failed:', e);
-		eda.sys_Dialog.showInformationMessage(`${msg}ngspice run failed`);
+		eda.sch_SimulationEngine.pushData(SpicePushEventType.ERROR_RESULT, msg);
 	}
 }

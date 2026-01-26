@@ -20,7 +20,7 @@
 	},
 	"homepage": "",
 	"bugs": "",
-	"activationEvents": {},
+	"activationEvents": { "onStartupFinished": true },
 	"entry": "./dist/index",
 	"dependentExtensions": {},
 	"headerMenus": {
