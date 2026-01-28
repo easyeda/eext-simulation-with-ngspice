@@ -1,26 +1,26 @@
 {
 	"name": "simulation-with-ngspice",
 	"uuid": "da6f02cde1cd4384abe56140588973be",
-	"displayName": "NGspice 仿真引擎",
-	"description": "嘉立创EDA & EasyEDA 专业版 NGspice 仿真引擎",
+	"displayName": "NGspice仿真",
+	"description": "NGspice仿真引擎，安装后你可以在NGspice仿真图页进行仿真",
 	"version": "1.0.0",
 	"publisher": "",
 	"engines": {
-		"eda": "^3.0.0"
+		"eda": "^3.2.0"
 	},
 	"license": "NGspice License (Modified BSD)",
 	"repository": {
 		"type": "extension-store",
-		"url": ""
+		"url": "https://github.com/easyeda/eext-simulation-with-ngspice"
 	},
 	"categories": "Schematic",
 	"keywords": ["Simulation"],
 	"images": {
-		"logo": "./images/logo.png"
+		"logo": "./images/ngspicelogo.jpg"
 	},
-	"homepage": "",
-	"bugs": "",
-	"activationEvents": { "onStartupFinished": true },
+	"homepage": "https://github.com/easyeda/eext-simulation-with-ngspice",
+	"bugs": "https://github.com/easyeda/eext-simulation-with-ngspice/issues",
+	"activationEvents": {},
 	"entry": "./dist/index",
 	"dependentExtensions": {},
 	"headerMenus": {
