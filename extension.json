@@ -25,5 +25,25 @@
 	"activationEvents": {},
 	"entry": "./dist/index",
 	"dependentExtensions": {},
-	"headerMenus": {}
+	"headerMenus": {
+		"sch": [
+			{
+				"id": "ngspice",
+				"title": "NGspice仿真引擎",
+				"menuItems": [
+					{
+						"id": "help",
+						"title": "NGspice仿真教程...",
+						"registerFn": "help"
+					},
+					{
+						"id": "about",
+						"title": "关于...",
+						"registerFn": "about"
+					}
+				]
+			}
+		]
+	}
+	}
 }
