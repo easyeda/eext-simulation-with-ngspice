@@ -6,7 +6,7 @@
 	"version": "1.0.0",
 	"publisher": "",
 	"engines": {
-		"eda": "^3.2.0"
+		"eda": "^3.3.0"
 	},
 	"license": "NGspice License (Modified BSD)",
 	"repository": {
