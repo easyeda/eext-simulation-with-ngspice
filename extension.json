@@ -1,49 +1,48 @@
 {
-	"name": "simulation-with-ngspice",
-	"uuid": "da6f02cde1cd4384abe56140588973be",
-	"displayName": "NGspice仿真",
-	"description": "NGspice仿真引擎，安装后你可以在NGspice仿真图页进行仿真",
-	"version": "1.0.0",
-	"publisher": "",
-	"engines": {
-		"eda": "^3.3.0"
-	},
-	"license": "NGspice License (Modified BSD)",
-	"repository": {
-		"type": "extension-store",
-		"url": "https://github.com/easyeda/eext-simulation-with-ngspice"
-	},
-	"categories": "Schematic",
-	"keywords": [
-		"Simulation"
-	],
-	"images": {
-		"logo": "./images/ngspicelogo.jpg"
-	},
-	"homepage": "https://github.com/easyeda/eext-simulation-with-ngspice",
-	"bugs": "https://github.com/easyeda/eext-simulation-with-ngspice/issues",
-	"activationEvents": {},
-	"entry": "./dist/index",
-	"dependentExtensions": {},
-	"headerMenus": {
-		"sch": [
-			{
-				"id": "ngspice",
-				"title": "NGspice仿真引擎",
-				"menuItems": [
-					{
-						"id": "help",
-						"title": "NGspice仿真教程...",
-						"registerFn": "help"
-					},
-					{
-						"id": "about",
-						"title": "关于...",
-						"registerFn": "about"
-					}
-				]
-			}
-		]
-	}
-	}
+  "name": "simulation-with-ngspice",
+  "uuid": "da6f02cde1cd4384abe56140588973be",
+  "displayName": "NGspice仿真",
+  "description": "NGspice仿真引擎，安装后你可以在NGspice仿真图页进行仿真",
+  "version": "1.0.0",
+  "publisher": "EasyEDA",
+  "engines": {
+    "eda": "^3.3.0"
+  },
+  "license": "NGspice License (Modified BSD)",
+  "repository": {
+    "type": "github",
+    "url": "https://github.com/easyeda/eext-simulation-with-ngspice"
+  },
+  "categories": "Schematic",
+  "keywords": [
+    "Simulation"
+  ],
+  "images": {
+    "logo": "./images/ngspicelogo.jpg"
+  },
+  "homepage": "https://github.com/easyeda",
+  "bugs": "https://github.com/easyeda/eext-simulation-with-ngspice/issues",
+  "activationEvents": {},
+  "entry": "./dist/index",
+  "dependentExtensions": {},
+  "headerMenus": {
+    "sch": [
+      {
+        "id": "ngspice",
+        "title": "NGspice仿真引擎",
+        "menuItems": [
+          {
+            "id": "help",
+            "title": "NGspice仿真教程...",
+            "registerFn": "help"
+          },
+          {
+            "id": "about",
+            "title": "关于...",
+            "registerFn": "about"
+          }
+        ]
+      }
+    ]
+  }
 }
