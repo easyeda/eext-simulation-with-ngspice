@@ -1,0 +1,44 @@
+{
+  "ngspiceVersion": "46",
+  "emscriptenVersion": "5.0.7",
+  "sourceArchive": "third_party/ngspice-46.tar.gz",
+  "sourceUrl": "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/46/ngspice-46.tar.gz/download",
+  "generatedAt": "2026-05-29T11:17:31",
+  "files": [
+    {
+      "name": "NGSPICE-AUTHORS.txt",
+      "bytes": 1761,
+      "sha256": "40c2a9c10237293a9f0cb6ac05823f594752142fde8fdf0b4c03d6c874b37a8e"
+    },
+    {
+      "name": "NGSPICE-COPYING.txt",
+      "bytes": 45714,
+      "sha256": "53e838832e7c00598bb86602a99f9644ba2060e19be209b52e60adb2c8eb6f77"
+    },
+    {
+      "name": "ngspice-global.js",
+      "bytes": 777,
+      "sha256": "c4b52efffa9fb68bdfb0e03941ec81e93f908c30278851b992eb68201c1d33c5"
+    },
+    {
+      "name": "ngspice-wasm-binary.js",
+      "bytes": 6023821,
+      "sha256": "f8348a9a9bec4f1ef17c58844b12fe5bc85e244ae82412cf1cee240e0d53453e"
+    },
+    {
+      "name": "ngspice.js",
+      "bytes": 75686,
+      "sha256": "2b113bb2744acbf37081ab333ebbf01195963c63abfedf6219afd51e6693b6b3"
+    },
+    {
+      "name": "ngspice.wasm",
+      "bytes": 4517176,
+      "sha256": "9ea2cacf66b03460aa939708fbece64ca897e436c1db448fc81f5855c8102163"
+    },
+    {
+      "name": "WASM-LIB-NOTES.md",
+      "bytes": 764,
+      "sha256": "a30429fdf6aecc3c17fb02584f347182ad0b4e61a4aa1674a2a44fa2e0bb255f"
+    }
+  ]
+}

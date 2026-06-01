@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"incremental": false,
+		"target": "ESNext",
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"module": "CommonJS",
+		"moduleResolution": "Node10",
+		"resolveJsonModule": true,
+		"strict": true,
+		"strictNullChecks": true,
+		"noImplicitAny": true,
+		"useUnknownInCatchVariables": true,
+		"outDir": "./dist/",
+		"sourceMap": false,
+		"allowSyntheticDefaultImports": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"skipLibCheck": true
+	},
+	"include": ["./src/**/*", "./config/**/*", "./build/**/*"]
+}

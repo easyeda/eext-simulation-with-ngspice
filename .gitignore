@@ -1,0 +1,6 @@
+/node_modules/
+/dist/
+/build/dist/
+*.eext
+*.log
+tools/launcher-config.json
