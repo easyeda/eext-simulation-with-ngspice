@@ -30,9 +30,21 @@ iframe/wasm/NGSPICE-AUTHORS.txt
 .\wasm-build\build-ngspice-wasm.windows.ps1 -Jobs 8
 ```
 
+默认会启用增量编译：脚本复用 `wasm-build/work/ngspice-46/`，并在 configure 输入没有变化时跳过 `configure`。如果需要完全清理后重编，再显式加 `-Clean`：
+
+```powershell
+.\wasm-build\build-ngspice-wasm.windows.ps1 -Jobs 8 -Clean
+```
+
+本地调试如果想缩短 Emscripten 链接优化时间，可以使用 `-LinkMode fast`。发布包仍建议使用默认的 `-LinkMode release`：
+
+```powershell
+.\wasm-build\build-ngspice-wasm.windows.ps1 -Jobs 8 -LinkMode fast
+```
+
 这个脚本会自动处理：
 
-- 检查并安装/激活 `emsdk 5.0.7` 到 `wasm-build/emsdk`。
+- 检查并使用项目内置的 `third_party/emsdk`；如果缺失，会安装/激活 `emsdk 5.0.7` 到该目录。
 - 检查 MSYS2；如未安装且系统有 `winget`，会自动安装 MSYS2。
 - 通过 MSYS2 安装 `base-devel`、`mingw-w64-x86_64-gcc`、`tar/gzip/xz` 等构建工具。
 - 调用 `wasm-build/build-ngspice-wasm.sh` 编译主 WASM 和 XSPICE `.cm` 侧模块。
@@ -151,10 +163,11 @@ quit
 
 ```text
 wasm-build/work/
-wasm-build/emsdk/
 wasm-lib/
 dist/
 build/dist/*.eext（保留当前要发布的包即可）
 ```
+
+`third_party/emsdk/` 是项目内置 Emscripten 工具链，用来让其他机器只安装 MSYS2 就能本地复现 WASM 构建，不再作为普通中间产物清理。
 
 真正会进入插件包的是 `.edaignore` 过滤后的文件，尤其是 `iframe/wasm/` 和 `dist/`。

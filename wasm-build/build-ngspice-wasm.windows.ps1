@@ -5,7 +5,10 @@ param(
 	[string] $BuildDir = "",
 	[string] $OutputDir = "",
 	[int] $Jobs = 0,
-	[switch] $SkipToolBootstrap
+	[ValidateSet("release", "fast")]
+	[string] $LinkMode = "release",
+	[switch] $SkipToolBootstrap,
+	[switch] $Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +24,7 @@ function Find-CommandPath([string] $Name) {
 }
 
 function Ensure-Emsdk {
-	$emsdkRoot = Resolve-RepoPath "wasm-build\emsdk"
+	$emsdkRoot = Resolve-RepoPath "third_party\emsdk"
 	$emsdkBat = Join-Path $emsdkRoot "emsdk.bat"
 	if (-not (Test-Path -LiteralPath $emsdkBat)) {
 		if ($SkipToolBootstrap) {
@@ -52,6 +55,7 @@ function Ensure-Emsdk {
 	if (-not $python) { throw "emsdk python.exe was not found." }
 
 	$env:EMSDK = $emsdkRoot
+	$env:EM_CONFIG = Join-Path $emsdkRoot ".emscripten"
 	$env:EMSDK_NODE = $node
 	$env:EMSDK_PYTHON = $python
 	return $emsdkRoot
@@ -119,6 +123,8 @@ if ($SourceDir) { $env:NGSPICE_SOURCE_DIR = $SourceDir }
 if ($BuildDir) { $env:NGSPICE_BUILD_DIR = $BuildDir }
 if ($OutputDir) { $env:NGSPICE_OUTPUT_DIR = $OutputDir }
 if ($Jobs -gt 0) { $env:JOBS = [string] $Jobs }
+$env:NGSPICE_LINK_MODE = $LinkMode
+if ($Clean) { $env:NGSPICE_CLEAN = "1" } else { Remove-Item Env:\NGSPICE_CLEAN -ErrorAction SilentlyContinue }
 
 $repoMsysPath = ConvertTo-MsysPath $PWD.Path
 & $bash -lc "cd '$repoMsysPath'; JOBS='${env:JOBS}' bash wasm-build/build-ngspice-wasm.sh"
