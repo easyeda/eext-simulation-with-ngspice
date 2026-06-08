@@ -1,8 +1,8 @@
 {
-	"name": "runlong-ngspice-waveform",
-	"uuid": "798566d04c944988bd158d3020adff6a",
+	"name": "simulation-with-ngspice",
+	"uuid": "da6f02cde1cd4384abe56140588973be",
 	"displayName": "NGspice 波形仿真",
-	"description": "面向嘉立创 EDA 专业版的 NGspice 本地仿真与波形查看插件，支持导出或导入仿真网表，使用内置 NGspice WASM 完成 transient / AC / DC 仿真，并提供曲线筛选、图例隐藏、鼠标位置缩放、拖拽平移、全屏波形观察和大数据波形保峰值渲染优化。",
+	"description": "面向嘉立创 EDA 专业版的 NGspice 本地仿真与波形查看插件，支持接收 EDA 仿真事件网表或手动导入网表，使用内置 NGspice WASM 完成 transient / AC / DC 仿真，并提供曲线筛选、图例隐藏、鼠标位置缩放、拖拽平移、全屏波形观察和大数据波形保峰值渲染优化。",
 	"version": "1.2.1",
 	"publisher": "runlong",
 	"engines": {
@@ -20,7 +20,7 @@
 	},
 	"homepage": "https://prodocs.lceda.cn/cn/api/guide/extensions-marketplace.html",
 	"bugs": "https://prodocs.lceda.cn/cn/api/guide/extensions-marketplace.html",
-	"activationEvents": {},
+	"activationEvents": { "onStartupFinished": true },
 	"entry": "./dist/index",
 	"dependentExtensions": {},
 	"headerMenus": {
@@ -29,11 +29,6 @@
 				"id": "JlcNgspiceWaveform",
 				"title": "NGspice 波形",
 				"menuItems": [
-					{
-						"id": "ImportSimulationNetlistToWaveform",
-						"title": "导出当前仿真网表并打开波形界面",
-						"registerFn": "importSimulationNetlistToWaveform"
-					},
 					{
 						"id": "OpenWaveformPanel",
 						"title": "打开波形界面",

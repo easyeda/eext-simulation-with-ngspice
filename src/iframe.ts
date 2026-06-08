@@ -1,7 +1,8 @@
 import { NETLIST_TOPIC, REQUEST_NETLIST_TOPIC, type NetlistImportMessage } from './messages';
 import { getEngineStatus, runNgspiceNetlist } from './engine-runner';
 import { detectAnalysisType, findAnalysisCommand } from './shared/netlist';
-import type { AnalysisType, SimulationResult, WaveformDataset, WaveformTrace } from './shared/types';
+import { normalizeEdaProbeNodes } from './shared/probes';
+import type { AnalysisType, EdaProbeNode, SimulationResult, WaveformDataset, WaveformTrace } from './shared/types';
 import { WaveformChart, traceColorAt } from './shared/waveform-chart';
 
 declare const eda: any;
@@ -56,11 +57,11 @@ app.innerHTML = `
         <div class="panel-head">
           <div>
             <h2>NGspice 仿真网表</h2>
-            <p>从 EDA 菜单导出，或导入 / 粘贴纯文本网表</p>
+            <p>由 EDA 仿真事件导入，或手动导入 / 粘贴纯文本网表</p>
           </div>
           <span id="netlistMeta" class="eda-tag neutral">未载入</span>
         </div>
-        <textarea id="netlistInput" class="netlist-editor" spellcheck="false" placeholder="从嘉立创 EDA 菜单导出仿真网表，或粘贴 .tran / .ac / .dc 网表"></textarea>
+        <textarea id="netlistInput" class="netlist-editor" spellcheck="false" placeholder="等待 EDA 仿真事件导入网表，或粘贴 .tran / .ac / .dc 网表"></textarea>
       </section>
 
       <section class="wave-panel">
@@ -171,6 +172,9 @@ let traceSelection = new Map<string, Set<string>>();
 let dialogDataset: WaveformDataset | null = null;
 let dialogSelectedTraceIds = new Set<string>();
 let logLines: string[] = [];
+let currentProbeNodes: EdaProbeNode[] = [];
+let lastAppliedImportKey = '';
+let runningSimulation = false;
 
 appendLog('界面已就绪。运行时使用插件内置 NGspice WASM，不会下载或启动本地引擎。');
 updateAnalysisMode();
@@ -182,6 +186,7 @@ fileInput.addEventListener('change', async () => {
 	if (!file) return;
 	netlistInput.value = await file.text();
 	sampleSelect.value = '';
+	currentProbeNodes = [];
 	updateNetlistMeta(file.name);
 	updateAnalysisMode();
 	clearWaveformOnly();
@@ -192,6 +197,7 @@ sampleSelect.addEventListener('change', () => {
 	const key = sampleSelect.value as keyof typeof sampleNetlists | '';
 	if (!key) return;
 	netlistInput.value = sampleNetlists[key];
+	currentProbeNodes = [];
 	updateNetlistMeta(`示例: ${key}`);
 	updateAnalysisMode();
 	clearWaveformOnly();
@@ -199,41 +205,13 @@ sampleSelect.addEventListener('change', () => {
 });
 
 netlistInput.addEventListener('input', () => {
+	currentProbeNodes = [];
 	updateNetlistMeta();
 	updateAnalysisMode();
 });
 
-runButton.addEventListener('click', async () => {
-	const netlist = netlistInput.value;
-	if (!netlist.trim()) {
-		appendLog('网表内容为空，无法运行');
-		return;
-	}
-
-	setRunning(true);
-	appendLog('开始运行仿真...');
-	appendLog(`识别模式: ${analysisModeLabel(detectAnalysisType(netlist))}${findAnalysisCommand(netlist) ? `，命令: ${findAnalysisCommand(netlist)}` : ''}`);
-	try {
-		const response = await runNgspiceNetlist(netlist);
-		mergeLogs(response.logs);
-		if (!response.ok || !response.result) {
-			appendLog(`仿真失败: ${response.error || '未知错误'}`);
-			return;
-		}
-		currentResult = response.result;
-		initializeTraceSelections(response.result);
-		renderResultTabs();
-		activateDataset(response.result.activeDatasetId || response.result.datasets[0]?.id || '');
-		showTraceDialog();
-		appendLog('仿真完成，波形已更新');
-	}
-	catch (error) {
-		appendLog(`请求失败: ${error instanceof Error ? error.message : String(error)}`);
-	}
-	finally {
-		setRunning(false);
-		void refreshEngineStatus();
-	}
+runButton.addEventListener('click', () => {
+	void runCurrentNetlist('manual');
 });
 
 clearButton.addEventListener('click', () => {
@@ -284,10 +262,16 @@ function subscribeToEdaNetlist() {
 
 	try {
 		bus.subscribePublic(NETLIST_TOPIC, (message: unknown) => {
-			if (isNetlistMessage(message)) applyImportedNetlist(message);
+			if (isNetlistMessage(message)) {
+				appendLog(`收到网表广播: ${message.fileName}，探针 ${message.probeNodes?.length ?? 0} 个`);
+				applyImportedNetlist(message);
+			}
 		});
 		bus.rpcCallPublic(REQUEST_NETLIST_TOPIC, undefined, 800).then((message: unknown) => {
-			if (isNetlistMessage(message)) applyImportedNetlist(message);
+			if (isNetlistMessage(message)) {
+				appendLog(`RPC 拉取到最近网表: ${message.fileName}，探针 ${message.probeNodes?.length ?? 0} 个`);
+				applyImportedNetlist(message);
+			}
 		}).catch(() => {
 			// 首次打开时可能还没有从 EDA 导出过网表。
 		});
@@ -299,13 +283,75 @@ function subscribeToEdaNetlist() {
 }
 
 function applyImportedNetlist(imported: NetlistImportMessage) {
+	const importKey = netlistImportKey(imported);
+	if (importKey === lastAppliedImportKey) {
+		appendLog(`跳过重复网表消息: ${imported.fileName}`);
+		return;
+	}
+	lastAppliedImportKey = importKey;
 	netlistInput.value = imported.netlist;
 	sampleSelect.value = '';
+	currentProbeNodes = normalizeEdaProbeNodes(imported.probeNodes);
 	clearWaveformOnly();
 	updateAnalysisMode(imported.analysisType);
+	if (currentProbeNodes.length) appendLog(`已接收 EDA 探针 ${currentProbeNodes.length} 个，将作为默认显示曲线`);
 	updateNetlistMeta(`${imported.fileName} · ${analysisModeLabel(imported.analysisType)}`);
 	appendLog(`已从 ${imported.source} 导入仿真网表: ${imported.fileName}`);
 	appendLog(`识别模式: ${analysisModeLabel(imported.analysisType)}${imported.command ? `，命令: ${imported.command}` : ''}`);
+	if (imported.autoRun) {
+		appendLog('EDA 仿真事件已导入网表，自动开始仿真');
+		void runCurrentNetlist('eda-auto');
+	}
+}
+
+function netlistImportKey(imported: NetlistImportMessage): string {
+	return [
+		imported.importedAt,
+		imported.fileName,
+		imported.lineCount,
+		imported.command,
+		imported.netlist.length,
+		JSON.stringify(normalizeEdaProbeNodes(imported.probeNodes)),
+		imported.autoRun ? 'auto' : 'manual',
+	].join('|');
+}
+
+async function runCurrentNetlist(trigger: 'manual' | 'eda-auto') {
+	if (runningSimulation) {
+		appendLog('仿真正在运行，已忽略新的运行请求');
+		return;
+	}
+
+	const netlist = netlistInput.value;
+	if (!netlist.trim()) {
+		appendLog('网表内容为空，无法运行');
+		return;
+	}
+
+	setRunning(true);
+	appendLog(trigger === 'eda-auto' ? '开始自动运行 EDA 仿真...' : '开始运行仿真...');
+	appendLog(`识别模式: ${analysisModeLabel(detectAnalysisType(netlist))}${findAnalysisCommand(netlist) ? `，命令: ${findAnalysisCommand(netlist)}` : ''}`);
+	try {
+		const response = await runNgspiceNetlist(netlist, { probeNodes: currentProbeNodes });
+		mergeLogs(response.logs);
+		if (!response.ok || !response.result) {
+			appendLog(`仿真失败: ${response.error || '未知错误'}`);
+			return;
+		}
+		currentResult = response.result;
+		initializeTraceSelections(response.result);
+		renderResultTabs();
+		activateDataset(response.result.activeDatasetId || response.result.datasets[0]?.id || '');
+		appendLog('仿真完成，波形已更新');
+	}
+	catch (error) {
+		appendLog(`请求失败: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	finally {
+		setRunning(false);
+		queueTraceDialogOpen();
+		void refreshEngineStatus();
+	}
 }
 
 function renderResultTabs() {
@@ -351,11 +397,13 @@ function clearWaveformOnly() {
 function initializeTraceSelections(result: SimulationResult) {
 	traceSelection = new Map<string, Set<string>>();
 	for (const dataset of result.datasets) {
-		traceSelection.set(dataset.id, defaultTraceSelection(dataset));
+		traceSelection.set(dataset.id, defaultTraceSelection(dataset, result));
 	}
 }
 
-function defaultTraceSelection(dataset: WaveformDataset): Set<string> {
+function defaultTraceSelection(dataset: WaveformDataset, result = currentResult): Set<string> {
+	const preferred = result?.preferredTraceIdsByDataset?.[dataset.id]?.filter((id) => dataset.traces.some((trace) => trace.id === id));
+	if (preferred?.length) return new Set(preferred);
 	if (dataset.traces.length <= 6) return new Set(dataset.traces.map((trace) => trace.id));
 	return new Set(dataset.traces.slice(0, 6).map((trace) => trace.id));
 }
@@ -499,11 +547,26 @@ function analysisModeLabel(type: AnalysisType): string {
 }
 
 function setRunning(running: boolean) {
+	runningSimulation = running;
 	runButton.disabled = running;
 	runButton.classList.toggle('loading', running);
 	runButton.innerHTML = running
 		? '<span class="spinner"></span>运行中'
 		: '<span class="icon run-icon"></span>运行';
+}
+
+function queueTraceDialogOpen() {
+	if (!currentResult || runningSimulation) return;
+	const open = () => {
+		if (!currentResult || runningSimulation) return;
+		showTraceDialog();
+		chart.resize();
+	};
+	if (typeof requestAnimationFrame === 'function') {
+		requestAnimationFrame(() => requestAnimationFrame(open));
+		return;
+	}
+	window.setTimeout(open, 30);
 }
 
 function appendLog(line: string) {

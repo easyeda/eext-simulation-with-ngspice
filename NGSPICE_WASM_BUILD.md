@@ -133,7 +133,7 @@ npm.cmd run build
 当前生成的插件包位置：
 
 ```text
-build/dist/runlong-ngspice-waveform_v1.2.1.eext
+build/dist/simulation-with-ngspice_v1.2.1.eext
 ```
 
 ## XSPICE 验证

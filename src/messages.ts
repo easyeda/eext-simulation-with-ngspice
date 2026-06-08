@@ -1,4 +1,4 @@
-import type { AnalysisType } from './shared/types';
+import type { AnalysisType, EdaProbeNode } from './shared/types';
 
 export const NETLIST_TOPIC = 'jlc-ngspice-waveform:netlist';
 export const REQUEST_NETLIST_TOPIC = 'jlc-ngspice-waveform:request-netlist';
@@ -14,4 +14,6 @@ export interface NetlistImportMessage {
 	command: string;
 	lineCount: number;
 	importedAt: number;
+	probeNodes?: EdaProbeNode[];
+	autoRun?: boolean;
 }
