@@ -3,6 +3,7 @@ import type { ECharts, EChartsOption } from "echarts";
 import type { WaveformAxis, WaveformDataset, WaveformTrace } from "./types";
 
 type DisplayMode = "line" | "points" | "both";
+type CursorMode = "follow" | "cursor";
 type AxisScale = "linear" | "log";
 
 interface ViewState {
@@ -37,9 +38,16 @@ const displayLabels: Record<DisplayMode, string> = {
   both: "线+点",
 };
 
+const cursorLabels: Record<CursorMode, string> = {
+  follow: "跟随",
+  cursor: "游标",
+};
+
 const TARGET_POINTS_PER_PIXEL = 2.5;
 const MIN_RENDER_POINTS = 1200;
 const MAX_RENDER_POINTS = 12000;
+const CURSOR_GRAPHIC_Z = 10000;
+const CURSOR_LABEL_MAX_ROWS = 8;
 export const TRACE_PALETTE = ["#1890ff", "#fa8c16", "#13a8a8", "#52c41a", "#6128ff", "#d73843", "#8c8c8c", "#096dd9"];
 const TRACE_LEGEND_ICON = "path://M0 5 L20 5 L20 7 L0 7 Z M10 2 A4 4 0 1 0 10 10 A4 4 0 1 0 10 2 Z";
 
@@ -51,6 +59,9 @@ export class WaveformChart {
   private chart: ECharts;
   private dataset: WaveformDataset | null = null;
   private displayMode: DisplayMode = "line";
+  private cursorMode: CursorMode = "follow";
+  private cursorX: number | null = null;
+  private cursorDragging = false;
   private visibleTraceIds: Set<string> | null = null;
   private legendHiddenTraceIds = new Set<string>();
   private panState: PanState | null = null;
@@ -68,18 +79,20 @@ export class WaveformChart {
     this.chart = echarts.init(el, null, { renderer: "canvas" });
     this.el.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
     this.el.addEventListener("mousemove", (event) => this.handleMouseMove(event));
-    this.el.addEventListener("mouseleave", () => this.hideCursorMarkers());
+    this.el.addEventListener("mouseleave", () => this.handleMouseLeave());
     this.el.addEventListener("mousedown", (event) => this.handleMouseDown(event));
     window.addEventListener("mousemove", (event) => this.handleWindowMouseMove(event));
-    window.addEventListener("mouseup", () => this.handleWindowMouseUp());
+    window.addEventListener("mouseup", (event) => this.handleWindowMouseUp(event));
     window.addEventListener("resize", () => this.resize());
     this.chart.on("legendselectchanged", (event: any) => this.handleLegendSelectionChanged(event));
     this.renderEmpty();
   }
 
   setDataset(dataset: WaveformDataset | null) {
+    const previousDatasetId = this.dataset?.id ?? null;
     this.dataset = dataset;
     this.panState = null;
+    if (!dataset || dataset.id !== previousDatasetId) this.cursorX = null;
     if (!dataset) {
       this.renderEmpty();
       return;
@@ -116,6 +129,7 @@ export class WaveformChart {
 
   resize() {
     this.chart.resize();
+    this.restoreCursorAfterRender();
   }
 
   cycleDisplayMode(): string {
@@ -128,6 +142,22 @@ export class WaveformChart {
 
   getDisplayLabel(): string {
     return displayLabels[this.displayMode];
+  }
+
+  cycleCursorMode(): string {
+    this.cursorMode = this.cursorMode === "follow" ? "cursor" : "follow";
+    if (this.cursorMode === "cursor") {
+      this.ensureCursorPosition();
+    } else {
+      this.hideCursorMarkers();
+    }
+    this.render();
+    if (this.cursorMode === "cursor") this.updateCursorAtX();
+    return cursorLabels[this.cursorMode];
+  }
+
+  getCursorModeLabel(): string {
+    return cursorLabels[this.cursorMode];
   }
 
   private renderEmpty() {
@@ -153,6 +183,7 @@ export class WaveformChart {
 
   private render() {
     if (!this.dataset) return;
+    if (this.cursorMode === "cursor") this.ensureCursorPosition();
     const dataset = this.dataset;
     const visibleTraces = this.getVisibleTraces();
     const yAxes = this.getRenderableAxes();
@@ -166,7 +197,9 @@ export class WaveformChart {
       `<span class="eda-tag neutral">${visibleTraces.length}/${dataset.traces.length} 曲线</span>`,
       `<span class="eda-tag neutral">${formatInteger(visibleTraces.reduce((sum, trace) => sum + trace.points.length, 0))} 采样点</span>`,
     ].filter(Boolean).join("");
-    this.el.title = "滚轮按鼠标位置缩放；按住左键拖动平移";
+    this.el.title = this.cursorMode === "follow"
+      ? "滚轮按鼠标位置缩放；按住左键拖动平移；数值线跟随鼠标"
+      : "滚轮按鼠标位置缩放；游标线可点击或拖动定位";
 
     const showEmptyHint = visibleTraces.length === 0;
     const option: EChartsOption = {
@@ -176,14 +209,14 @@ export class WaveformChart {
       animationDuration: 450,
       tooltip: {
         show: true,
-        trigger: "axis",
+        trigger: this.cursorMode === "follow" ? "axis" : "item",
         confine: true,
         backgroundColor: "#fff",
         borderColor: "#d9d9d9",
         borderWidth: 1,
         textStyle: { color: "#333", fontSize: 12 },
         axisPointer: {
-          type: "line",
+          type: this.cursorMode === "follow" ? "line" : "none",
           snap: this.displayMode !== "line",
           lineStyle: { color: "rgba(0,0,0,0.24)", type: "dashed", width: 1 },
         },
@@ -280,6 +313,14 @@ export class WaveformChart {
     };
 
     this.chart.setOption(option, true);
+    this.restoreCursorAfterRender();
+  }
+
+  private restoreCursorAfterRender() {
+    if (this.cursorMode !== "cursor" || !this.dataset) return;
+    this.ensureCursorPosition();
+    if (this.cursorX !== null) this.cursorX = clamp(this.cursorX, this.view.xMin, this.view.xMax);
+    this.updateCursorAtX();
   }
 
   private buildTraceSeries(trace: WaveformTrace, index: number, yAxes: WaveformAxis[]) {
@@ -409,24 +450,41 @@ export class WaveformChart {
     }
 
     this.applyView();
-    this.updateCursorFromLocalPoint(localX, localY);
+    if (this.cursorMode === "follow") this.updateCursorFromLocalPoint(localX, localY);
   }
 
   private handleMouseMove(event: MouseEvent) {
-    if (!this.dataset || this.panState) return;
+    if (!this.dataset || this.panState || this.cursorDragging) return;
     const point = this.localPoint(event);
+    if (this.cursorMode === "cursor" && this.isCursorHandleHit(point.x, point.y)) {
+      this.el.style.cursor = "ew-resize";
+      return;
+    }
     if (!this.isInPlot(point.x, point.y)) {
-      this.hideCursorMarkers();
+      if (this.cursorMode === "follow") this.hideCursorMarkers();
       this.el.style.cursor = "default";
       return;
     }
-    this.el.style.cursor = "grab";
-    this.updateCursorFromLocalPoint(point.x, point.y);
+    this.el.style.cursor = this.cursorMode === "cursor"
+      ? this.isCursorHandleHit(point.x, point.y) ? "ew-resize" : "default"
+      : "grab";
+    if (this.cursorMode === "follow") this.updateCursorFromLocalPoint(point.x, point.y);
+  }
+
+  private handleMouseLeave() {
+    if (this.cursorMode === "follow") this.hideCursorMarkers();
   }
 
   private handleMouseDown(event: MouseEvent) {
     if (!this.dataset || event.button !== 0) return;
     const point = this.localPoint(event);
+    if (this.cursorMode === "cursor") {
+      if (!this.isCursorHandleHit(point.x, point.y)) return;
+      this.cursorDragging = true;
+      this.el.style.cursor = "ew-resize";
+      event.preventDefault();
+      return;
+    }
     if (!this.isInPlot(point.x, point.y)) return;
     const bounds = this.plotBounds();
     this.panState = {
@@ -441,6 +499,11 @@ export class WaveformChart {
   }
 
   private handleWindowMouseMove(event: MouseEvent) {
+    if (this.dataset && this.cursorDragging && event.buttons === 1) {
+      const point = this.localPoint(event);
+      this.updateCursorFromLocalX(point.x);
+      return;
+    }
     if (!this.dataset || !this.panState || event.buttons !== 1) return;
     const point = this.localPoint(event);
     const dx = point.x - this.panState.x;
@@ -464,10 +527,19 @@ export class WaveformChart {
     this.applyView();
   }
 
-  private handleWindowMouseUp() {
+  private handleWindowMouseUp(event: MouseEvent) {
+    if (this.cursorDragging) {
+      this.cursorDragging = false;
+      this.el.style.cursor = "ew-resize";
+      return;
+    }
     if (!this.panState) return;
+    const state = this.panState;
     this.panState = null;
     this.el.style.cursor = "grab";
+    if (this.cursorMode !== "cursor" || state.dragging) return;
+    const point = this.localPoint(event);
+    if (this.isInPlot(point.x, point.y)) this.updateCursorFromLocalPoint(point.x, point.y);
   }
 
   private updateCursorFromLocalPoint(localX: number, localY: number) {
@@ -481,6 +553,23 @@ export class WaveformChart {
       return;
     }
 
+    this.cursorX = x;
+    this.updateCursorAtX();
+  }
+
+  private updateCursorFromLocalX(localX: number) {
+    if (!this.dataset) return;
+    const bounds = this.plotBounds();
+    const clampedX = Math.min(bounds.right, Math.max(bounds.left, localX));
+    const x = this.xValueAtPixel(clampedX, bounds.top + bounds.height / 2);
+    if (!Number.isFinite(x)) return;
+    this.cursorX = Math.min(this.view.xMax, Math.max(this.view.xMin, x));
+    this.updateCursorAtX();
+  }
+
+  private updateCursorAtX() {
+    if (!this.dataset || this.cursorX === null) return;
+    const x = this.cursorX;
     const updates = this.getVisibleTraces().map((trace) => {
       const y = this.legendHiddenTraceIds.has(trace.id) ? null : interpolateSeriesValue(trace.points, x);
       return {
@@ -489,15 +578,180 @@ export class WaveformChart {
       };
     });
     this.chart.setOption({ series: updates }, false);
+    this.updateCursorLine();
   }
 
   private hideCursorMarkers() {
     if (!this.dataset) return;
+    this.cursorX = null;
+    this.hideCursorGraphicLine();
     const updates = this.getVisibleTraces().map((trace) => ({
       id: `cursor_${trace.id}`,
       data: [],
     }));
     if (updates.length) this.chart.setOption({ series: updates }, false);
+  }
+
+  private updateCursorLine() {
+    this.updateCursorGraphicLine();
+  }
+
+  private updateCursorGraphicLine() {
+    if (!this.dataset || this.cursorMode !== "cursor" || this.cursorX === null) {
+      this.hideCursorGraphicLine();
+      return;
+    }
+    const pixel = normalizePixel(this.chart.convertToPixel({ xAxisIndex: 0 }, this.cursorX), 0);
+    if (!Number.isFinite(pixel)) {
+      this.hideCursorGraphicLine();
+      return;
+    }
+    const bounds = this.plotBounds();
+    this.chart.setOption({ graphic: this.cursorGraphicElements(pixel, bounds) }, false);
+  }
+
+  private ensureCursorPosition() {
+    if (!this.dataset || this.cursorX !== null) return;
+    this.cursorX = initialCursorValue(this.view.xMin, this.view.xMax, this.dataset.xAxis.scale === "log");
+  }
+
+  private hideCursorGraphicLine() {
+    this.chart.setOption({
+      graphic: [
+        hiddenLineGraphic("fixed-cursor-line"),
+        hiddenPolygonGraphic("fixed-cursor-handle"),
+        ...hiddenCursorLabelGraphics(),
+      ],
+    }, false);
+  }
+
+  private isCursorHandleHit(localX: number, localY: number): boolean {
+    if (!this.dataset || this.cursorMode !== "cursor" || this.cursorX === null) return false;
+    const pixel = normalizePixel(this.chart.convertToPixel({ xAxisIndex: 0 }, this.cursorX), 0);
+    const bounds = this.plotBounds();
+    return Math.abs(localX - pixel) <= 11 && localY >= bounds.top - 16 && localY <= bounds.top + 8;
+  }
+
+  private cursorGraphicElements(pixel: number, bounds: ReturnType<WaveformChart["plotBounds"]>): any[] {
+    const valueItems = this.cursorValueItems();
+    const labelWidth = 228;
+    const labelPadding = 8;
+    const headerHeight = 20;
+    const rowHeight = 18;
+    const labelHeight = Math.max(30, labelPadding * 2 + headerHeight + valueItems.rows.length * rowHeight);
+    const labelGap = 10;
+    const labelX = pixel + labelWidth + labelGap > bounds.right
+      ? Math.max(bounds.left + 6, pixel - labelWidth - labelGap)
+      : Math.min(bounds.right - labelWidth, Math.max(bounds.left + 6, pixel + labelGap));
+    const labelY = Math.min(Math.max(bounds.top + 8, bounds.top + 8), Math.max(bounds.top + 8, bounds.bottom - labelHeight - 6));
+    const labelGraphics: any[] = [
+      {
+        id: "fixed-cursor-label-bg",
+        type: "rect",
+        silent: true,
+        z: CURSOR_GRAPHIC_Z + 2,
+        invisible: false,
+        shape: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, r: 3 },
+        style: {
+          fill: "#ffffff",
+          stroke: "#d9d9d9",
+          lineWidth: 1,
+          shadowBlur: 10,
+          shadowColor: "rgba(0, 0, 0, 0.14)",
+          shadowOffsetY: 2,
+        },
+      },
+      {
+        id: "fixed-cursor-label-header",
+        type: "text",
+        silent: true,
+        z: CURSOR_GRAPHIC_Z + 3,
+        invisible: false,
+        x: labelX + labelPadding,
+        y: labelY + labelPadding,
+        style: {
+          text: valueItems.header,
+          fill: "#333333",
+          font: "bold 12px Microsoft YaHei",
+          width: labelWidth - labelPadding * 2,
+          overflow: "truncate",
+        },
+      },
+    ];
+    for (let index = 0; index < CURSOR_LABEL_MAX_ROWS; index += 1) {
+      const row = valueItems.rows[index];
+      const rowY = labelY + labelPadding + headerHeight + index * rowHeight;
+      const isVisible = Boolean(row);
+      labelGraphics.push(
+        {
+          id: `fixed-cursor-label-dot-${index}`,
+          type: "circle",
+          silent: true,
+          z: CURSOR_GRAPHIC_Z + 3,
+          invisible: !isVisible,
+          shape: { cx: labelX + labelPadding + 4, cy: rowY + 7, r: 4 },
+          style: { fill: row?.color || "#333333" },
+        },
+        {
+          id: `fixed-cursor-label-row-${index}`,
+          type: "text",
+          silent: true,
+          z: CURSOR_GRAPHIC_Z + 3,
+          invisible: !isVisible,
+          x: labelX + labelPadding + 14,
+          y: rowY,
+          style: {
+            text: row?.text || "",
+            fill: "#333333",
+            font: "12px Microsoft YaHei",
+            width: labelWidth - labelPadding * 2 - 14,
+            overflow: "truncate",
+          },
+        },
+      );
+    }
+    return [
+      {
+        id: "fixed-cursor-line",
+        type: "line",
+        silent: true,
+        z: CURSOR_GRAPHIC_Z,
+        invisible: false,
+        shape: { x1: pixel, y1: bounds.top, x2: pixel, y2: bounds.bottom },
+        style: { stroke: "#d32029", lineWidth: 1.5, lineDash: [5, 4] },
+      },
+      {
+        id: "fixed-cursor-handle",
+        type: "polygon",
+        silent: true,
+        z: CURSOR_GRAPHIC_Z + 1,
+        invisible: false,
+        shape: {
+          points: [
+            [pixel - 7, bounds.top - 12],
+            [pixel + 7, bounds.top - 12],
+            [pixel, bounds.top],
+          ],
+        },
+        style: { fill: "#d32029", stroke: "#ffffff", lineWidth: 1 },
+      },
+      ...labelGraphics,
+    ];
+  }
+
+  private cursorValueItems(): { header: string; rows: Array<{ color: string; text: string }> } {
+    if (!this.dataset || this.cursorX === null) return { header: "", rows: [] };
+    const header = `${this.dataset.xAxis.name}: ${formatAxisValue(this.cursorX, this.dataset.xAxis.unit)}`;
+    const rows: Array<{ color: string; text: string }> = [];
+    for (const [index, trace] of this.getDisplayedTraces().slice(0, CURSOR_LABEL_MAX_ROWS).entries()) {
+      const y = interpolateSeriesValue(trace.points, this.cursorX);
+      if (y === null) continue;
+      rows.push({
+        color: this.colorForTrace(trace, index),
+        text: `${trace.name}: ${formatAxisValue(y, trace.unit)}`,
+      });
+    }
+    return { header, rows };
   }
 
   private applyView() {
@@ -525,6 +779,8 @@ export class WaveformChart {
       })),
       series: seriesUpdates,
     });
+    if (this.cursorX !== null) this.updateCursorLine();
+    if (this.cursorMode === "cursor" && this.cursorX !== null) this.updateCursorAtX();
   }
 
   private getVisibleTraces(): WaveformTrace[] {
@@ -538,6 +794,10 @@ export class WaveformChart {
     return traces.length ? traces : [];
   }
 
+  private getCursorLineTraceId(): string | null {
+    return this.getDisplayedTraces()[0]?.id ?? this.getVisibleTraces()[0]?.id ?? null;
+  }
+
   private handleLegendSelectionChanged(event: { selected?: Record<string, boolean> }) {
     if (!this.dataset || !event?.selected) return;
     const nextHidden = new Set<string>();
@@ -545,6 +805,12 @@ export class WaveformChart {
       if (event.selected[trace.name] === false) nextHidden.add(trace.id);
     }
     this.legendHiddenTraceIds = nextHidden;
+    if (this.cursorMode === "cursor") {
+      this.ensureCursorPosition();
+      this.updateCursorAtX();
+      requestAnimationFrame(() => this.restoreCursorAfterRender());
+      return;
+    }
     this.hideCursorMarkers();
   }
 
@@ -692,6 +958,75 @@ function fitXToDataBounds(dataset: WaveformDataset, traces: WaveformTrace[]): Pi
     return { xMin: min - pad, xMax: max + pad };
   }
   return { xMin: min, xMax: max };
+}
+
+function initialCursorValue(min: number, max: number, isLog: boolean): number {
+  if (isLog) return Math.max(min, Number.MIN_VALUE);
+  return Math.min(max, Math.max(min, 0));
+}
+
+function hiddenLineGraphic(id: string): any {
+  return {
+    id,
+    type: "line",
+    invisible: true,
+    silent: true,
+    shape: { x1: 0, y1: 0, x2: 0, y2: 0 },
+  };
+}
+
+function hiddenPolygonGraphic(id: string): any {
+  return {
+    id,
+    type: "polygon",
+    invisible: true,
+    silent: true,
+    shape: { points: [[0, 0], [0, 0], [0, 0]] },
+  };
+}
+
+function hiddenCursorLabelGraphics(): any[] {
+  const graphics: any[] = [
+    hiddenRectGraphic("fixed-cursor-label-bg"),
+    hiddenTextGraphic("fixed-cursor-label-header"),
+  ];
+  for (let index = 0; index < CURSOR_LABEL_MAX_ROWS; index += 1) {
+    graphics.push(
+      hiddenCircleGraphic(`fixed-cursor-label-dot-${index}`),
+      hiddenTextGraphic(`fixed-cursor-label-row-${index}`),
+    );
+  }
+  return graphics;
+}
+
+function hiddenRectGraphic(id: string): any {
+  return {
+    id,
+    type: "rect",
+    invisible: true,
+    silent: true,
+    shape: { x: 0, y: 0, width: 0, height: 0 },
+  };
+}
+
+function hiddenCircleGraphic(id: string): any {
+  return {
+    id,
+    type: "circle",
+    invisible: true,
+    silent: true,
+    shape: { cx: 0, cy: 0, r: 0 },
+  };
+}
+
+function hiddenTextGraphic(id: string): any {
+  return {
+    id,
+    type: "text",
+    invisible: true,
+    silent: true,
+    style: { text: "" },
+  };
 }
 
 function paddedRange(values: number[], isLog: boolean): { min: number; max: number } {

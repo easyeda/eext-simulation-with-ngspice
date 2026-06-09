@@ -1,7 +1,7 @@
 import { findAnalysisCommand, normalizeNetlistForNgspice } from "./shared/netlist";
 import { normalizeNgspiceMessages } from "./shared/ngspice-normalize";
-import { addSyntheticCurrentProbeTraces, augmentNetlistWithProbeSaves, preferredTraceIdsByDataset } from "./shared/probes";
-import type { EdaProbeNode, SimulationResponse, WaveformDataset } from "./shared/types";
+import { addSyntheticCurrentProbeTraces, augmentNetlistWithCurrentProbeSaves } from "./shared/probes";
+import type { SimulationResponse, WaveformDataset } from "./shared/types";
 
 type ComplexScalar = number | { real: number; imag: number };
 
@@ -50,7 +50,6 @@ export interface WasmNgspiceRunOptions {
 	wasmBinary?: WasmBinary;
 	wasmBaseUrl?: string;
 	timeoutMs?: number;
-	probeNodes?: EdaProbeNode[];
 }
 
 declare global {
@@ -102,13 +101,13 @@ export async function runNgspiceNetlistWithWasm(
 	logs.push("运行模式: 浏览器内 ngspice WASM");
 	const prepared = normalizeNetlistForNgspice(netlist);
 	logs.push(...prepared.logs);
-	const withProbeSaves = augmentNetlistWithProbeSaves(prepared.netlist, options.probeNodes);
-	logs.push(...withProbeSaves.logs);
-	logs.push(`仿真命令: ${findAnalysisCommand(withProbeSaves.netlist) || "未识别，交由 ngspice 返回错误"}`);
+	const withCurrentProbeSaves = augmentNetlistWithCurrentProbeSaves(prepared.netlist);
+	logs.push(...withCurrentProbeSaves.logs);
+	logs.push(`仿真命令: ${findAnalysisCommand(withCurrentProbeSaves.netlist) || "未识别，交由 ngspice 返回错误"}`);
 
 	try {
 		const module = loadedModule ?? await withTimeout(loadModule(factory, options, logs), options.timeoutMs ?? 15_000);
-		const response = await runLoadedModule(module, withProbeSaves.netlist, logs, options.timeoutMs ?? 60_000, options.probeNodes);
+		const response = await runLoadedModule(module, withCurrentProbeSaves.netlist, logs, options.timeoutMs ?? 60_000);
 		return response;
 	}
 	catch (error) {
@@ -239,7 +238,6 @@ async function runLoadedModule(
 	netlist: string,
 	logs: string[],
 	timeoutMs: number,
-	probeNodes: EdaProbeNode[] = [],
 ): Promise<SimulationResponse> {
 	const workDir = `/tmp/jlc-ngspice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 	const inputPath = `${workDir}/input.cir`;
@@ -272,16 +270,11 @@ async function runLoadedModule(
 	}
 
 	logs.push(`WASM 解析到 ${datasets.length} 组结果，曲线数 ${datasets.reduce((sum, dataset) => sum + dataset.traces.length, 0)}`);
-	const preferredTraceIds = preferredTraceIdsByDataset(datasets, probeNodes, netlist);
-	if (Object.keys(preferredTraceIds).length) {
-		logs.push(`已识别 EDA 探针默认显示曲线 ${Object.values(preferredTraceIds).reduce((sum, ids) => sum + ids.length, 0)} 条`);
-	}
 	return {
 		ok: true,
 		result: {
 			datasets,
 			activeDatasetId: datasets[0]?.id ?? null,
-			preferredTraceIdsByDataset: preferredTraceIds,
 		},
 		logs: trimLogs(logs),
 	};

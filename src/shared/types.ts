@@ -38,7 +38,6 @@ export interface WaveformDataset {
 export interface SimulationResult {
   datasets: WaveformDataset[];
   activeDatasetId: string | null;
-  preferredTraceIdsByDataset?: Record<string, string[]>;
 }
 
 export interface SimulationResponse {
@@ -46,13 +45,6 @@ export interface SimulationResponse {
   result?: SimulationResult;
   logs: string[];
   error?: string;
-}
-
-export interface EdaProbeNode {
-  ProbeNode: string;
-  ProbeType?: number;
-  LowLevel?: number;
-  HighLevel?: number;
 }
 
 export interface ImportedNetlist {

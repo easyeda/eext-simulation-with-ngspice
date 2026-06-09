@@ -1,31 +1,11 @@
-import type { EdaProbeNode, WaveformDataset, WaveformTrace } from "./types";
 import { inferUnit } from "./netlist";
+import type { WaveformDataset, WaveformTrace } from "./types";
 
 export interface CurrentProbe {
   name: string;
   nodeA: string;
   nodeB: string;
   resistance: number;
-}
-
-export function normalizeEdaProbeNodes(value: unknown): EdaProbeNode[] {
-  if (!Array.isArray(value)) return [];
-  const probes: EdaProbeNode[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    const rawNode = record.ProbeNode ?? record.probeNode ?? record.node ?? record.id;
-    if (rawNode === undefined || rawNode === null) continue;
-    const probe: EdaProbeNode = { ProbeNode: String(rawNode) };
-    const probeType = toFiniteNumber(record.ProbeType ?? record.probeType);
-    const lowLevel = toFiniteNumber(record.LowLevel ?? record.lowLevel);
-    const highLevel = toFiniteNumber(record.HighLevel ?? record.HightLevel ?? record.highLevel ?? record.hightLevel);
-    if (probeType !== null) probe.ProbeType = probeType;
-    if (lowLevel !== null) probe.LowLevel = lowLevel;
-    if (highLevel !== null) probe.HighLevel = highLevel;
-    probes.push(probe);
-  }
-  return dedupeProbes(probes);
 }
 
 export function extractCurrentProbes(netlist: string): CurrentProbe[] {
@@ -47,12 +27,8 @@ export function extractCurrentProbes(netlist: string): CurrentProbe[] {
   return dedupeCurrentProbes(probes);
 }
 
-export function augmentNetlistWithProbeSaves(netlist: string, probeNodes: EdaProbeNode[] = []): { netlist: string; logs: string[] } {
+export function augmentNetlistWithCurrentProbeSaves(netlist: string): { netlist: string; logs: string[] } {
   const saveTargets = new Set<string>();
-  for (const probe of probeNodes) {
-    const vector = voltageVectorName(probe.ProbeNode);
-    if (vector) saveTargets.add(vector);
-  }
   for (const probe of extractCurrentProbes(netlist)) {
     saveTargets.add(`v(${probe.nodeA})`);
     saveTargets.add(`v(${probe.nodeB})`);
@@ -70,7 +46,7 @@ export function augmentNetlistWithProbeSaves(netlist: string, probeNodes: EdaPro
     : `${netlist.trimEnd()}\n${saveBlock}\n.end`;
   return {
     netlist: nextNetlist,
-    logs: [`已补充探针保存向量: ${missing.join(", ")}`],
+    logs: [`已补充 XAM 电流探针保存向量: ${missing.join(", ")}`],
   };
 }
 
@@ -114,26 +90,6 @@ export function addSyntheticCurrentProbeTraces(datasets: WaveformDataset[], netl
   });
 }
 
-export function preferredTraceIdsByDataset(datasets: WaveformDataset[], probeNodes: EdaProbeNode[] = [], netlist = ""): Record<string, string[]> {
-  const wanted = new Set<string>();
-  for (const probe of probeNodes) {
-    for (const candidate of probeNameCandidates(probe.ProbeNode)) wanted.add(candidate);
-  }
-  for (const probe of extractCurrentProbes(netlist)) {
-    wanted.add(probe.name.toLowerCase());
-  }
-  if (!wanted.size) return {};
-
-  const result: Record<string, string[]> = {};
-  for (const dataset of datasets) {
-    const ids = dataset.traces
-      .filter((trace) => traceMatchesWanted(trace, wanted))
-      .map((trace) => trace.id);
-    if (ids.length) result[dataset.id] = ids;
-  }
-  return result;
-}
-
 function findVoltageTrace(traces: WaveformTrace[], node: string): WaveformTrace | null {
   const candidates = new Set(probeNameCandidates(node));
   return traces.find((trace) => trace.axisId === "voltage" && traceMatchesWanted(trace, candidates)) ?? null;
@@ -161,25 +117,13 @@ function probeNameCandidates(value: string): string[] {
   const text = normalizeProbeText(value);
   if (!text) return [];
   const unwrapped = text.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
-  const scoped = normalizeScopeProbeNode(value);
-  const scopedUnwrapped = scoped.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
   return [...new Set([
     text,
     unwrapped,
     `v(${unwrapped})`,
     `i(${unwrapped})`,
     normalizeCurrentProbeName(unwrapped),
-    scoped,
-    scopedUnwrapped,
-    `v(${scopedUnwrapped})`,
   ].map(normalizeProbeText).filter(Boolean))];
-}
-
-function voltageVectorName(value: string): string {
-  const text = normalizeScopeProbeNode(value);
-  if (!text || isGround(text) || /^i\(/i.test(text) || /^xam/i.test(text)) return "";
-  if (/^v\(/i.test(text)) return text;
-  return `v(${text})`;
 }
 
 function existingSaveTargets(netlist: string): Set<string> {
@@ -204,44 +148,12 @@ function normalizeProbeText(value: string): string {
   return String(value).trim().toLowerCase();
 }
 
-function normalizeScopeProbeNode(value: string): string {
-  const raw = String(value).trim();
-  if (!raw) return "";
-  if (/^[vi]\(/i.test(raw)) return raw;
-  if (canUseDataAsDouble(raw)) return `V(${raw})`;
-  return raw.charAt(0).toLowerCase() + raw.slice(1);
-}
-
-function canUseDataAsDouble(value: string): boolean {
-  const text = value.trim();
-  if (!text) return false;
-  const match = text.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/);
-  if (!match) return false;
-  const number = Number(match[0]);
-  return Number.isFinite(number) && number !== 0;
-}
-
 function sameProbeName(a: string, b: string): boolean {
   return normalizeProbeText(a) === normalizeProbeText(b);
 }
 
 function isGround(value: string): boolean {
   return /^(0|gnd)$/i.test(value.trim());
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(number) ? number : null;
-}
-
-function dedupeProbes(probes: EdaProbeNode[]): EdaProbeNode[] {
-  const seen = new Set<string>();
-  return probes.filter((probe) => {
-    const key = `${normalizeProbeText(probe.ProbeNode)}:${probe.ProbeType ?? ""}:${probe.LowLevel ?? ""}:${probe.HighLevel ?? ""}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function dedupeCurrentProbes(probes: CurrentProbe[]): CurrentProbe[] {

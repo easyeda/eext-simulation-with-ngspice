@@ -1,13 +1,12 @@
 import { INSTALL_LAUNCHER_TOPIC, LAUNCH_ENGINE_TOPIC, NETLIST_TOPIC, REQUEST_NETLIST_TOPIC, type NetlistImportMessage } from './messages';
 import { detectAnalysisType, findAnalysisCommand } from './shared/netlist';
-import { normalizeEdaProbeNodes } from './shared/probes';
 import JSZip from 'jszip';
 
 declare const eda: any;
+declare const ESCH_SimulationNetlistType: { NGSPICE?: unknown } | undefined;
 
 let latestNetlistMessage: NetlistImportMessage | null = null;
 let rpcRegistered = false;
-let simulationEventRegistered = false;
 
 function debugLog(message: string, extra?: unknown): void {
 	try {
@@ -19,23 +18,58 @@ function debugLog(message: string, extra?: unknown): void {
 	}
 }
 
-enum SpicePullEventType {
-	SIMULATE_NETLIST = 'SIMULATE_NETLIST',
-	VALIDATE_NETLIST = 'VALIDATE_NETLIST',
-}
-
-export function activate(status?: 'onStartupFinished', arg?: string): void {
-	debugLog('activate called', { status, arg });
+export function activate(): void {
+	debugLog('activate called');
 	registerNetlistRpc();
-	if (!status || status === 'onStartupFinished') {
-		registerSimulationEngineEvents();
-	}
 }
 
 export async function openWaveformPanel(): Promise<void> {
 	debugLog('openWaveformPanel called');
+	registerNetlistRpc();
 	latestNetlistMessage = null;
 	await openPanel();
+}
+
+export async function importSimulationNetlistToWaveform(): Promise<void> {
+	debugLog('importSimulationNetlistToWaveform called');
+	registerNetlistRpc();
+	try {
+		await openPanel();
+		const file = await eda.sch_ManufactureData.getSimulationNetlistFile(
+			'simulation-netlist',
+			resolveNgspiceNetlistType(),
+		);
+
+		if (!file) {
+			showInfo('当前原理图没有可导出的 NGspice 仿真网表。请先确认原理图中包含仿真源、分析命令和可仿真模型。', 'NGspice 波形仿真');
+			return;
+		}
+
+		const netlist = await file.text();
+		if (!netlist.trim()) {
+			showInfo('导出的仿真网表为空，无法运行。', 'NGspice 波形仿真');
+			return;
+		}
+
+		const analysisType = detectAnalysisType(netlist);
+		latestNetlistMessage = {
+			type: 'simulation-netlist',
+			source: 'EasyEDA Pro',
+			fileName: normalizeFileName(file.name || 'simulation-netlist.cir'),
+			netlist,
+			analysisType,
+			command: findAnalysisCommand(netlist),
+			lineCount: countLines(netlist),
+			importedAt: Date.now(),
+		};
+
+		publishLatestLater();
+		showToast(`已导出 ${latestNetlistMessage.fileName}，${latestNetlistMessage.lineCount} 行`);
+	}
+	catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		showInfo(`导出或打开波形界面失败：${message}`, 'NGspice 波形仿真');
+	}
 }
 
 async function openPanel(): Promise<void> {
@@ -65,75 +99,6 @@ function registerNetlistRpc() {
 	}
 }
 
-function registerSimulationEngineEvents() {
-	if (simulationEventRegistered) {
-		debugLog('simulation engine listener already registered');
-		return;
-	}
-	if (typeof eda?.sch_Event?.addSimulationEnginePullEventListener !== 'function') {
-		debugLog('simulation engine listener API unavailable');
-		return;
-	}
-	simulationEventRegistered = true;
-	try {
-		eda.sch_Event.addSimulationEnginePullEventListener('jlc-ngspice-waveform-engine', 'all', async (eventType: SpicePullEventType, props: unknown) => {
-			const record = props && typeof props === 'object' ? props as Record<string, unknown> : {};
-			debugLog('simulation engine event received', {
-				eventType,
-				hasNetlist: typeof record.netlist === 'string',
-				probeCount: Array.isArray(record.probeNodes) ? record.probeNodes.length : Array.isArray(record.ProbeNodes) ? record.ProbeNodes.length : 0,
-			});
-			if (eventType !== SpicePullEventType.SIMULATE_NETLIST) return;
-			try {
-				await openPanel();
-				debugLog('panel opened before simulation netlist import');
-			}
-			catch (error) {
-				debugLog('open panel before simulation netlist import failed or already open', error instanceof Error ? error.message : String(error));
-				// Continue importing the netlist; an already-open panel can still receive it.
-			}
-			await receiveEdaSimulationNetlist(props);
-		});
-		debugLog('simulation engine listener registered');
-	}
-	catch (error) {
-		simulationEventRegistered = false;
-		debugLog('simulation engine listener register failed', error instanceof Error ? error.message : String(error));
-	}
-}
-
-async function receiveEdaSimulationNetlist(props: unknown): Promise<void> {
-	const record = props && typeof props === 'object' ? props as Record<string, unknown> : {};
-	const netlist = typeof record.netlist === 'string' ? record.netlist : '';
-	const probeNodes = normalizeEdaProbeNodes(record.probeNodes ?? record.ProbeNodes);
-	if (!netlist.trim()) {
-		debugLog('simulation event ignored: empty netlist');
-		return;
-	}
-
-	const analysisType = detectAnalysisType(netlist);
-	latestNetlistMessage = {
-		type: 'simulation-netlist',
-		source: 'EasyEDA Pro',
-		fileName: 'simulation-netlist.cir',
-		netlist,
-		analysisType,
-		command: findAnalysisCommand(netlist),
-		lineCount: countLines(netlist),
-		importedAt: Date.now(),
-		probeNodes,
-		autoRun: true,
-	};
-	debugLog('simulation netlist cached', {
-		lineCount: latestNetlistMessage.lineCount,
-		analysisType,
-		command: latestNetlistMessage.command,
-		probeCount: probeNodes.length,
-		autoRun: latestNetlistMessage.autoRun,
-	});
-	publishLatestLater();
-}
-
 function publishLatestLater() {
 	if (!latestNetlistMessage) {
 		debugLog('publish skipped: no latest netlist');
@@ -142,7 +107,6 @@ function publishLatestLater() {
 	debugLog('schedule netlist publish', {
 		fileName: latestNetlistMessage.fileName,
 		lineCount: latestNetlistMessage.lineCount,
-		probeCount: latestNetlistMessage.probeNodes?.length ?? 0,
 	});
 	for (const delay of [120, 420, 900, 1600]) {
 		schedule(() => {
@@ -206,6 +170,36 @@ function schedule(callback: () => void, delay: number) {
 	}
 }
 
+function resolveNgspiceNetlistType(): unknown {
+	if (typeof ESCH_SimulationNetlistType !== 'undefined' && ESCH_SimulationNetlistType?.NGSPICE) {
+		return ESCH_SimulationNetlistType.NGSPICE;
+	}
+	return 'NGspice';
+}
+
+function normalizeFileName(fileName: string): string {
+	const trimmed = fileName.trim() || 'simulation-netlist.cir';
+	return /\.[a-z0-9]+$/i.test(trimmed) ? trimmed : `${trimmed}.cir`;
+}
+
 function countLines(text: string): number {
 	return text.split(/\r?\n/).filter((line) => line.trim()).length;
+}
+
+function showInfo(content: string, title: string) {
+	try {
+		eda.sys_Dialog.showInformationMessage(content, title, '确定');
+	}
+	catch {
+		console.log(`[${title}] ${content}`);
+	}
+}
+
+function showToast(content: string) {
+	try {
+		eda.sys_Message.showToastMessage(content, 'success');
+	}
+	catch {
+		console.log(content);
+	}
 }

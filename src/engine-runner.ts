@@ -1,4 +1,4 @@
-import type { EdaProbeNode, SimulationResponse } from './shared/types';
+import type { SimulationResponse } from './shared/types';
 import { isWasmNgspiceAvailable, runNgspiceNetlistWithWasm } from './wasm-ngspice-runner';
 
 const WASM_BASE_URL = '/iframe/wasm';
@@ -10,11 +10,7 @@ export interface RunnerStatus {
 	label: string;
 }
 
-export interface RunNgspiceOptions {
-	probeNodes?: EdaProbeNode[];
-}
-
-export async function runNgspiceNetlist(netlist: string, options: RunNgspiceOptions = {}): Promise<SimulationResponse> {
+export async function runNgspiceNetlist(netlist: string): Promise<SimulationResponse> {
 	if (!netlist.trim()) {
 		return { ok: false, logs: ['网表内容为空'], error: '网表内容为空' };
 	}
@@ -23,7 +19,6 @@ export async function runNgspiceNetlist(netlist: string, options: RunNgspiceOpti
 	const wasmResponse = await runNgspiceNetlistWithWasm(netlist, {
 		wasmBaseUrl: WASM_BASE_URL,
 		timeoutMs: 60_000,
-		probeNodes: options.probeNodes,
 	});
 
 	if (wasmResponse.ok) {
