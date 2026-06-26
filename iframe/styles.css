@@ -93,8 +93,8 @@ h2 {
 }
 
 .toolbar,
-.head-actions,
-.trace-dialog-toolbar {
+.trace-dialog-toolbar,
+.log-actions {
 	display: flex;
 	align-items: center;
 	gap: 4px;
@@ -151,7 +151,8 @@ h2 {
 	color: #096dd9;
 }
 
-.eda-button:disabled {
+.eda-button:disabled,
+.tool-button:disabled {
 	opacity: 0.62;
 	cursor: not-allowed;
 }
@@ -320,23 +321,50 @@ h2 {
 .chart-head {
 	min-height: 48px;
 	min-width: 0;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
+	display: flex;
 	align-items: center;
 }
 
 .chart-head h2 {
+	flex: 1 1 140px;
+	min-width: 120px;
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
 
+.head-actions {
+	min-width: 0;
+	flex: 0 1 auto;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
 .badges {
+	min-width: 0;
+	flex: 1 1 auto;
 	display: flex;
 	align-items: center;
 	gap: 4px;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	justify-content: flex-end;
+	overflow: hidden;
+}
+
+.badges .eda-tag {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+.chart-tools {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	flex: 0 0 auto;
+	flex-wrap: nowrap;
 }
 
 .plot-shell {
@@ -535,6 +563,10 @@ h2 {
 	display: none;
 }
 
+.wave-expanded .head-actions {
+	margin-left: auto;
+}
+
 .wave-expanded .plot-shell {
 	padding: 0;
 }
@@ -555,6 +587,7 @@ h2 {
 .import-icon::before,
 .run-icon::before,
 .clear-icon::before,
+.export-icon::before,
 .fit-icon::before,
 .select-icon::before,
 .trace-icon::before,
@@ -586,6 +619,22 @@ h2 {
 	right: 2px;
 	top: 6px;
 	border-top: 2px solid currentColor;
+	transform: rotate(-45deg);
+}
+
+.export-icon::before {
+	border-top: 0;
+}
+
+.export-icon::after {
+	content: "";
+	position: absolute;
+	left: 6px;
+	top: 1px;
+	width: 5px;
+	height: 8px;
+	border-left: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
 	transform: rotate(-45deg);
 }
 
@@ -653,5 +702,22 @@ h2 {
 	.input-panel {
 		border-right: 0;
 		border-bottom: 1px solid #d9d9d9;
+	}
+
+	.chart-head h2,
+	.chart-head .badges {
+		display: none;
+	}
+
+	.head-actions {
+		width: 100%;
+	}
+
+	.chart-tools {
+		width: 100%;
+		justify-content: flex-start;
+		overflow-x: auto;
+		overflow-y: hidden;
+		padding-bottom: 1px;
 	}
 }

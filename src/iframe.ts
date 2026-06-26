@@ -70,26 +70,32 @@ app.innerHTML = `
             <h2 id="chartTitle">NGspice 波形结果</h2>
             <div class="head-actions">
               <div id="chartBadges" class="badges"></div>
-              <button id="fitButton" class="tool-button" type="button" title="适应窗口">
-                <span class="icon fit-icon"></span>
-                适应
-              </button>
-              <button id="traceSelectButton" class="tool-button" type="button" title="选择显示波形">
-                <span class="icon select-icon"></span>
-                曲线
-              </button>
-              <button id="displayButton" class="tool-button active" type="button" title="切换线/点显示">
-                <span class="icon trace-icon"></span>
-                显示：<span id="displayLabel">仅线</span>
-              </button>
-              <button id="cursorModeButton" class="tool-button active" type="button" title="切换数值线模式">
-                <span class="icon select-icon"></span>
-                数值：<span id="cursorModeLabel">跟随</span>
-              </button>
-              <button id="expandButton" class="tool-button" type="button" title="单独放大波形">
-                <span class="icon expand-icon"></span>
-                放大
-              </button>
+              <div class="chart-tools">
+                <button id="fitButton" class="tool-button" type="button" title="适应窗口">
+                  <span class="icon fit-icon"></span>
+                  适应
+                </button>
+                <button id="exportWaveformButton" class="tool-button" type="button" title="导出当前波形数据 CSV" disabled>
+                  <span class="icon export-icon"></span>
+                  导出
+                </button>
+                <button id="traceSelectButton" class="tool-button" type="button" title="选择显示波形">
+                  <span class="icon select-icon"></span>
+                  曲线
+                </button>
+                <button id="displayButton" class="tool-button active" type="button" title="切换线/点显示">
+                  <span class="icon trace-icon"></span>
+                  显示：<span id="displayLabel">仅线</span>
+                </button>
+                <button id="cursorModeButton" class="tool-button active" type="button" title="切换数值线模式">
+                  <span class="icon select-icon"></span>
+                  数值：<span id="cursorModeLabel">跟随</span>
+                </button>
+                <button id="expandButton" class="tool-button" type="button" title="单独放大波形">
+                  <span class="icon expand-icon"></span>
+                  放大
+                </button>
+              </div>
             </div>
           </div>
           <div class="plot-shell">
@@ -105,7 +111,10 @@ app.innerHTML = `
           <h2>运行日志</h2>
           <p>导入、连接、stdout / stderr 与错误信息</p>
         </div>
-        <button id="clearLogButton" class="eda-button default compact" type="button">清空日志</button>
+        <div class="log-actions">
+          <button id="exportLogButton" class="eda-button default compact" type="button" disabled>导出日志</button>
+          <button id="clearLogButton" class="eda-button default compact" type="button">清空日志</button>
+        </div>
       </div>
       <pre id="logOutput" class="log-output"></pre>
     </section>
@@ -141,6 +150,7 @@ const sampleSelect = query<HTMLSelectElement>('#sampleSelect');
 const analysisModeSelect = query<HTMLSelectElement>('#analysisModeSelect');
 const runButton = query<HTMLButtonElement>('#runButton');
 const clearButton = query<HTMLButtonElement>('#clearButton');
+const exportLogButton = query<HTMLButtonElement>('#exportLogButton');
 const clearLogButton = query<HTMLButtonElement>('#clearLogButton');
 const netlistInput = query<HTMLTextAreaElement>('#netlistInput');
 const netlistMeta = query<HTMLElement>('#netlistMeta');
@@ -148,6 +158,7 @@ const engineStatus = query<HTMLElement>('#engineStatus');
 const logOutput = query<HTMLPreElement>('#logOutput');
 const resultTabs = query<HTMLElement>('#resultTabs');
 const fitButton = query<HTMLButtonElement>('#fitButton');
+const exportWaveformButton = query<HTMLButtonElement>('#exportWaveformButton');
 const traceSelectButton = query<HTMLButtonElement>('#traceSelectButton');
 const displayButton = query<HTMLButtonElement>('#displayButton');
 const displayLabel = query<HTMLElement>('#displayLabel');
@@ -230,6 +241,12 @@ clearLogButton.addEventListener('click', () => {
 });
 
 fitButton.addEventListener('click', () => chart.fit());
+exportWaveformButton.addEventListener('click', () => {
+	void exportActiveWaveformCsv();
+});
+exportLogButton.addEventListener('click', () => {
+	void exportLogs();
+});
 traceSelectButton.addEventListener('click', () => showTraceDialog());
 displayButton.addEventListener('click', () => {
 	displayLabel.textContent = chart.cycleDisplayMode();
@@ -380,6 +397,7 @@ function activateDataset(id: string) {
 	resultTabs.querySelectorAll<HTMLElement>('.result-tab').forEach((tab) => {
 		tab.classList.toggle('active', tab.dataset.id === dataset?.id);
 	});
+	updateExportButtons();
 }
 
 function clearWaveformOnly() {
@@ -389,6 +407,7 @@ function clearWaveformOnly() {
 	resultTabs.innerHTML = '';
 	closeTraceSelectionDialog();
 	chart.setDataset(null);
+	updateExportButtons();
 }
 
 function initializeTraceSelections(result: SimulationResult) {
@@ -578,6 +597,139 @@ function mergeLogs(lines: string[]) {
 function renderLogs() {
 	logOutput.textContent = logLines.join('\n');
 	logOutput.scrollTop = logOutput.scrollHeight;
+	updateExportButtons();
+}
+
+async function exportActiveWaveformCsv() {
+	const dataset = getActiveDataset();
+	if (!dataset) {
+		appendLog('暂无波形数据，无法导出');
+		return;
+	}
+
+	const fileName = `ngspice-waveform-${sanitizeFileNamePart(dataset.meta.sourcePlot || dataset.analysisType)}-${formatFileTimestamp(new Date())}.csv`;
+	try {
+		await saveTextFile(buildWaveformCsv(dataset), fileName, 'text/csv');
+		appendLog(`已导出波形数据: ${fileName}`);
+	}
+	catch (error) {
+		appendLog(`导出波形数据失败: ${error instanceof Error ? error.message : String(error)}`);
+	}
+}
+
+async function exportLogs() {
+	if (!logLines.length) {
+		appendLog('暂无日志可导出');
+		return;
+	}
+
+	const fileName = `ngspice-log-${formatFileTimestamp(new Date())}.log`;
+	try {
+		await saveTextFile(`${logLines.join('\n')}\n`, fileName, 'text/plain');
+		appendLog(`已导出运行日志: ${fileName}`);
+	}
+	catch (error) {
+		appendLog(`导出运行日志失败: ${error instanceof Error ? error.message : String(error)}`);
+	}
+}
+
+function getActiveDataset(): WaveformDataset | null {
+	if (!currentResult) return null;
+	return currentResult.datasets.find((item) => item.id === activeDatasetId) || currentResult.datasets[0] || null;
+}
+
+function buildWaveformCsv(dataset: WaveformDataset): string {
+	const headers = [
+		axisHeader(dataset.xAxis.name, dataset.xAxis.unit),
+		...dataset.traces.map((trace) => axisHeader(trace.name, trace.unit)),
+	];
+	const rowCount = Math.max(0, ...dataset.traces.map((trace) => trace.points.length));
+	const rows = [headers.map(csvCell).join(',')];
+
+	for (let index = 0; index < rowCount; index += 1) {
+		const xPoint = dataset.traces.find((trace) => trace.points[index]);
+		const row = [
+			csvNumber(xPoint?.points[index]?.[0]),
+			...dataset.traces.map((trace) => csvNumber(trace.points[index]?.[1])),
+		];
+		rows.push(row.map(csvCell).join(','));
+	}
+
+	return `\uFEFF${rows.join('\r\n')}\r\n`;
+}
+
+async function saveTextFile(content: string, fileName: string, mimeType: string) {
+	const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+	const fileSystem = getFileSystem();
+	if (fileSystem?.saveFile) {
+		await fileSystem.saveFile(blob, fileName);
+		return;
+	}
+
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = fileName;
+	link.rel = 'noopener';
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
+	window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function getFileSystem(): any | null {
+	try {
+		if (typeof eda !== 'undefined' && eda?.sys_FileSystem) return eda.sys_FileSystem;
+	}
+	catch {
+		// ignored
+	}
+	try {
+		const parentEda = window.parent && (window.parent as any).eda;
+		return parentEda?.sys_FileSystem || null;
+	}
+	catch {
+		return null;
+	}
+}
+
+function updateExportButtons() {
+	exportWaveformButton.disabled = !getActiveDataset();
+	exportLogButton.disabled = logLines.length === 0;
+}
+
+function axisHeader(name: string, unit: string): string {
+	return unit ? `${name} (${unit})` : name;
+}
+
+function csvNumber(value: number | undefined): string {
+	return Number.isFinite(value) ? String(value) : '';
+}
+
+function csvCell(value: string | number | null | undefined): string {
+	const text = value === null || value === undefined ? '' : String(value);
+	return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function formatFileTimestamp(value: Date): string {
+	const pad = (part: number) => part.toString().padStart(2, '0');
+	return [
+		value.getFullYear(),
+		pad(value.getMonth() + 1),
+		pad(value.getDate()),
+		'-',
+		pad(value.getHours()),
+		pad(value.getMinutes()),
+		pad(value.getSeconds()),
+	].join('');
+}
+
+function sanitizeFileNamePart(value: string): string {
+	return value
+		.replace(/[\\/:*?"<>|\x00-\x1F]+/g, '_')
+		.replace(/\s+/g, '_')
+		.replace(/^_+|_+$/g, '')
+		.slice(0, 80) || 'dataset';
 }
 
 function getMessageBus(): any | null {

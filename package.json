@@ -1,6 +1,6 @@
 {
 	"name": "easyeda-ngspice-waveform-plugin",
-	"version": "1.2.1",
+	"version": "1.2.2",
 	"private": true,
 	"description": "嘉立创 EDA 专业版 NGspice 本地仿真、波形查看、大数据渲染与交互分析插件",
 	"author": "runlong",

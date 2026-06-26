@@ -25,7 +25,7 @@ function main() {
 
 	const zip = new JSZip();
 	for (const file of files) {
-		zip.file(file, fs.readFileSync(path.join(rootDir, file)));
+		zip.file(file, Uint8Array.from(fs.readFileSync(path.join(rootDir, file))));
 	}
 
 	const target = path.join(outputDir, `${extensionConfig.name}_v${extensionConfig.version}.eext`);
