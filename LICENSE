@@ -4,5 +4,5 @@ This extension bundles a WebAssembly build of ngspice. The ngspice source code
 uses the Modified BSD license, with component-level exceptions documented in
 `iframe/wasm/NGSPICE-COPYING.txt`.
 
-The extension UI and integration code are provided by runlong for use with
+The extension UI and integration code are provided by chensiyu for use with
 JLC EasyEDA Pro NGspice waveform simulation workflows.
