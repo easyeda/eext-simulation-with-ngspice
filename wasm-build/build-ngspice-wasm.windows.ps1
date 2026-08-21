@@ -105,6 +105,42 @@ function ConvertTo-MsysPath([string] $WindowsPath) {
 	return $fullPath -replace "\\", "/"
 }
 
+function Remove-RepoPath([string] $RelativePath) {
+	$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+	$target = Resolve-RepoPath $RelativePath
+	if (-not ($target.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase))) {
+		throw "Refusing to remove path outside repository: ${target}"
+	}
+	if (Test-Path -LiteralPath $target) {
+		Write-Host "Removing ${target}"
+		Remove-Item -LiteralPath $target -Recurse -Force
+	}
+}
+
+function Remove-GeneratedWasmRuntimeFiles {
+	$iframeWasm = Resolve-RepoPath "iframe\wasm"
+	if (-not (Test-Path -LiteralPath $iframeWasm)) { return }
+	$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+	if (-not ($iframeWasm.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase))) {
+		throw "Refusing to clean iframe wasm path outside repository: ${iframeWasm}"
+	}
+	$names = @(
+		"ngspice.js",
+		"ngspice.wasm",
+		"ngspice-wasm-binary.js",
+		"ngspice-xspice-codemodels.js",
+		"NGSPICE-COPYING.txt",
+		"NGSPICE-AUTHORS.txt"
+	)
+	foreach ($name in $names) {
+		$path = Join-Path $iframeWasm $name
+		if (Test-Path -LiteralPath $path) {
+			Write-Host "Removing ${path}"
+			Remove-Item -LiteralPath $path -Force
+		}
+	}
+}
+
 $emsdkRoot = Ensure-Emsdk
 $bash = Ensure-Msys2
 Add-MsysPackages $bash
@@ -124,7 +160,20 @@ if ($BuildDir) { $env:NGSPICE_BUILD_DIR = $BuildDir }
 if ($OutputDir) { $env:NGSPICE_OUTPUT_DIR = $OutputDir }
 if ($Jobs -gt 0) { $env:JOBS = [string] $Jobs }
 $env:NGSPICE_LINK_MODE = $LinkMode
-if ($Clean) { $env:NGSPICE_CLEAN = "1" } else { Remove-Item Env:\NGSPICE_CLEAN -ErrorAction SilentlyContinue }
+if ($Clean) {
+	Write-Host "Clean build requested. Generated build/output artifacts will be removed once before this run."
+	Write-Host "If this build is interrupted, rerun the same command without -Clean to resume incrementally."
+	Remove-RepoPath "wasm-build\work"
+	Remove-RepoPath "wasm-lib"
+	Remove-RepoPath "third_party\ngspice-46"
+	Remove-RepoPath "dist"
+	Remove-RepoPath "build\dist"
+	Remove-GeneratedWasmRuntimeFiles
+	$env:NGSPICE_CLEAN = "1"
+} else {
+	Write-Host "Incremental build requested. Existing wasm-build/work and wasm-lib artifacts will be reused."
+	Remove-Item Env:\NGSPICE_CLEAN -ErrorAction SilentlyContinue
+}
 
 $repoMsysPath = ConvertTo-MsysPath $PWD.Path
 & $bash -lc "cd '$repoMsysPath'; JOBS='${env:JOBS}' bash wasm-build/build-ngspice-wasm.sh"

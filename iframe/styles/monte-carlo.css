@@ -1,0 +1,245 @@
+.mc-table-wrap {
+	min-height: 0;
+	overflow: auto;
+	height: 100%;
+}
+
+.mc-table {
+	width: max-content;
+	min-width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.mc-table th,
+.mc-table td {
+	height: 26px;
+	max-width: 180px;
+	padding: 0 8px;
+	border-bottom: 1px solid #eeeeee;
+	border-right: 1px solid #eeeeee;
+	text-align: right;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.mc-table th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: #fafafa;
+	color: #5f6874;
+	font-weight: 600;
+}
+
+.mc-table th:first-child,
+.mc-table td:first-child,
+.mc-table th:nth-child(2),
+.mc-table td:nth-child(2) {
+	text-align: left;
+}
+
+.mc-table tr.failed td {
+	color: #ad2102;
+	background: #fff1f0;
+}
+
+.mc-table tr.mc-sample-row {
+	cursor: pointer;
+}
+
+.mc-table tr.mc-sample-row:hover td {
+	background: #f5faff;
+}
+
+.mc-table tr.mc-sample-row.active td {
+	background: #e6f7ff;
+	color: #096dd9;
+}
+
+.mc-table tr.mc-summary-row {
+	cursor: pointer;
+}
+
+.mc-table tr.mc-summary-row:hover td {
+	background: #f5faff;
+}
+
+.mc-table tr.mc-summary-row.active td {
+	background: #e6f7ff;
+	color: #096dd9;
+}
+
+.mc-empty,
+.mc-note {
+	padding: 8px;
+	color: #868686;
+}
+
+.mc-note {
+	border-bottom: 1px solid #eeeeee;
+	background: #fbfcfd;
+}
+
+.bottom-panel {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) 32px;
+	border-top: 1px solid #d9d9d9;
+	border-right: 0;
+	background: #ffffff;
+	min-height: 0;
+}
+
+/* 分隔线不画在容器上（会在选中 tab 上方漏出 1px 灰线），画在每个 tab 自己的顶边；
+   选中 tab 顶边用白色消失，与上方日志面板连成一体。 */
+.bottom-tabs {
+	grid-row: 2;
+	display: flex;
+	align-items: stretch;
+	gap: 0;
+	padding: 0;
+	background: #f7f8fa;
+	overflow: hidden;
+}
+
+/* 底部 tab（运行日志/统计摘要/样本数据）：EasyEDA 面板标签规范 —
+   未选中自带 1px 边框；选中与上方内容面板融合（白底，顶边框去掉），
+   指示线 3px solid #1890ff 在字体下方，字号 12px，选中 bolder。 */
+.bottom-tab {
+	position: relative;
+	height: 32px;
+	border: 1px solid var(--common-border-color, #e9e9e9);
+	background: var(--bg-color-panel-tab, #f0f0f0);
+	color: #5f6874;
+	padding: 0 12px;
+	cursor: pointer;
+	letter-spacing: 0;
+	white-space: nowrap;
+	font-size: 12px;
+}
+
+.bottom-tab + .bottom-tab {
+	margin-left: -1px;
+}
+
+.bottom-tab:hover {
+	color: #096dd9;
+}
+
+.bottom-tab.active {
+	background: var(--bg-color-selected-panel-tab, #ffffff);
+	color: #1890ff;
+	font-weight: bolder;
+	/* 与上方内容面板融合：白顶边（分隔线在 tab 顶边上，白色即消失） */
+	border-top: 1px solid var(--bg-color-selected-panel-tab, #ffffff);
+}
+
+.bottom-tab.active::before {
+	content: "";
+	position: absolute;
+	bottom: -1px;
+	left: -1px;
+	right: -1px;
+	border-bottom: 3px solid #1890ff;
+}
+
+.bottom-tab:focus-visible {
+	outline: 1px solid rgba(24, 144, 255, 0.2);
+	outline-offset: -1px;
+}
+
+.bottom-status {
+	margin-left: auto;
+	align-self: center;
+	color: #5f6874;
+	white-space: nowrap;
+}
+
+.bottom-tabs > .eda-button {
+	align-self: center;
+}
+
+.bottom-content,
+.bottom-pane {
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.bottom-content {
+	grid-row: 1;
+}
+
+.bottom-pane {
+	display: none;
+	height: 100%;
+}
+
+.bottom-pane.active {
+	display: block;
+}
+
+.bottom-pane.log-pane.active {
+	position: relative;
+	display: block;
+}
+
+.log-clear-button {
+	position: absolute;
+	right: 18px;
+	bottom: 5px;
+	z-index: 1;
+	height: 22px;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0 6px;
+	border: 1px solid transparent;
+	border-radius: 2px;
+	background: rgba(251, 252, 253, 0.94);
+	color: #697386;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.log-clear-button:hover,
+.log-clear-button:focus-visible {
+	border-color: #91d5ff;
+	background: #e6f7ff;
+	color: #096dd9;
+	outline: none;
+}
+
+.log-output {
+	margin: 0;
+	padding: 8px 8px 32px;
+	overflow: auto;
+	background: #fbfcfd;
+	color: #2f3845;
+	font-family: Consolas, "Courier New", monospace;
+	font-size: 12px;
+	line-height: 18px;
+	width: 100%;
+	height: 100%;
+	max-height: 100%;
+	min-height: 0;
+}
+
+.input-collapsed .input-panel,
+.input-collapsed .splitter-vertical {
+	display: none;
+}
+
+.input-collapsed .workbench {
+	grid-template-columns: 32px minmax(0, 1fr);
+}
+
+.bottom-collapsed {
+	grid-template-rows: 44px minmax(0, 1fr) 4px 32px;
+}
+
+.bottom-collapsed .bottom-content {
+	display: none;
+}
+

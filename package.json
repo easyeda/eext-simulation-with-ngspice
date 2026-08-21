@@ -1,8 +1,8 @@
 {
 	"name": "easyeda-ngspice-waveform-plugin",
-	"version": "1.2.2",
+	"version": "1.8.1",
 	"private": true,
-	"description": "嘉立创 EDA 专业版 NGspice 本地仿真、波形查看、大数据渲染与交互分析插件",
+	"description": "嘉立创 EDA 专业版 NGspice 内置 WASM 电路仿真、波形查看、大数据渲染与交互分析插件",
 	"author": "chensiyu",
 	"license": "BSD-3-Clause",
 	"engines": {
@@ -10,10 +10,13 @@
 	},
 	"scripts": {
 		"compile": "rimraf ./dist/ && ts-node ./config/esbuild.prod.ts",
-		"build": "npm run compile && ts-node ./build/packaged.ts"
+		"build": "npm run compile && ts-node ./build/packaged.ts",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"echarts": "^5.6.0"
+		"echarts": "^5.6.0",
+		"jszip": "^3.10.1",
+		"lucide": "1.2.0"
 	},
 	"devDependencies": {
 		"@jlceda/pro-api-types": "file:../pro-api-types/package",
@@ -22,7 +25,6 @@
 		"esbuild": "^0.24.2",
 		"fs-extra": "^11.3.0",
 		"ignore": "^7.0.3",
-		"jszip": "^3.10.1",
 		"rimraf": "^6.0.1",
 		"ts-node": "^10.9.2",
 		"typescript": "^5.7.3"

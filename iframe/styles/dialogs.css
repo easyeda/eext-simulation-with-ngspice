@@ -1,0 +1,132 @@
+.modal-mask {
+	position: fixed;
+	inset: 0;
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.28);
+}
+
+.modal-mask.hidden {
+	display: none;
+}
+
+.lc-modal {
+	width: min(560px, calc(100vw - 32px));
+	max-height: min(680px, calc(100vh - 32px));
+	display: grid;
+	grid-template-rows: 44px minmax(0, 1fr) 44px;
+	background: #ffffff;
+	border: 1px solid #bfbfbf;
+	border-radius: 2px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.lc-modal__header,
+.lc-modal__footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px;
+	border-bottom: 1px solid #d9d9d9;
+}
+
+.lc-modal__footer {
+	justify-content: flex-end;
+	border-top: 1px solid #d9d9d9;
+	border-bottom: 0;
+}
+
+.lc-modal__body {
+	min-height: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	padding: 8px;
+	gap: 8px;
+}
+
+.modal-close {
+	width: 24px;
+	height: 24px;
+	border: 1px solid #d9d9d9;
+	background: #ffffff;
+	border-radius: 2px;
+	cursor: pointer;
+}
+
+.trace-list {
+	min-height: 0;
+	overflow: auto;
+	border: 1px solid #d9d9d9;
+	background: #ffffff;
+}
+
+.trace-filter-input {
+	height: 24px;
+	min-width: 160px;
+	flex: 1 1 180px;
+	border: 1px solid #d9d9d9;
+	border-radius: 2px;
+	background: #ffffff;
+	color: #333333;
+	padding: 0 8px;
+}
+
+.trace-option {
+	height: 30px;
+	display: grid;
+	grid-template-columns: 20px 24px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 4px;
+	padding: 0 8px;
+	border-bottom: 1px solid #eeeeee;
+	cursor: pointer;
+}
+
+.trace-option:hover {
+	background: #f5faff;
+}
+
+.trace-option input {
+	width: 14px;
+	height: 14px;
+	margin: 0;
+	accent-color: #1890ff;
+}
+
+.trace-swatch {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	border: 1px solid #ffffff;
+	background: var(--trace-color);
+	box-shadow: 0 0 0 1px var(--trace-color);
+	justify-self: center;
+}
+
+.trace-swatch::before,
+.trace-swatch::after {
+	content: none;
+}
+
+.trace-name {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.trace-meta {
+	color: #868686;
+	white-space: nowrap;
+}
+
+.trace-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 80px;
+	color: #868686;
+}
+

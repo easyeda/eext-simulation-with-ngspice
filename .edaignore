@@ -1,5 +1,6 @@
 /.git/
 /.vscode/
+/.claude/
 /build/
 /config/
 /node_modules/
@@ -11,10 +12,13 @@
 /tsconfig.json
 /CODEBASE_GUIDE.md
 /NGSPICE_WASM_BUILD.md
+/project-discussion/
+/tests/
+/iframe/styles.css
+/iframe/styles/
 /third_party/
+/tools/
 /wasm-build/
 /wasm-lib/
 debug.log
 *.tsbuildinfo
-launcher-config.json
-tools/launcher-config.json

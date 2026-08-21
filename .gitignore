@@ -1,8 +1,16 @@
 /node_modules/
 /dist/
 /build/dist/
+/build/logs/
+/build/ngspice-wasm-kit/
+/build/review-assets/
+/build/tmp/
 /third_party/ngspice-46/
+/project-discussion
+/wasm-build/logs/
 /wasm-build/work/
+/.vscode/
+/.claude/
 *.eext
 *.log
 tools/launcher-config.json

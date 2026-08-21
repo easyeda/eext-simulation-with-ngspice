@@ -2,8 +2,9 @@ import type esbuild from 'esbuild';
 
 export default {
 	entryPoints: {
-		index: './src/index',
-		iframe: './src/iframe',
+		index: './src/integrations/eda/plugin-entry',
+		iframe: './src/app/iframe',
+		'iframe-styles': './iframe/styles.css',
 	},
 	entryNames: '[name]',
 	assetNames: '[name]',

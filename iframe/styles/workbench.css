@@ -1,0 +1,475 @@
+.workbench {
+	position: relative;
+	display: grid;
+	grid-template-columns: 32px minmax(0, var(--left-panel-effective-width)) 4px minmax(0, 1fr);
+	min-height: 0;
+}
+
+.input-dock {
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+	background: #f7f8fa;
+	z-index: 3;
+}
+
+/* 左侧竖排 tab（仿真网表/容差参数）：EasyEDA 垂直标签规范 —
+   未选中自带 1px 边框；选中与输入面板融合（白底，右边框去掉），
+   指示线 2px solid #1890ff 在字体左方，字号 12px，选中 bolder。 */
+.input-dock-tab {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	width: 100%;
+	height: auto;
+	min-height: 116px;
+	padding: 12px 0 10px;
+	border: 1px solid var(--common-border-color, #e9e9e9);
+	background: var(--bg-color-panel-tab, #f0f0f0);
+	color: #5f6874;
+	cursor: pointer;
+	line-height: 20px;
+	letter-spacing: 0;
+	font-size: 12px;
+}
+
+.input-dock-tab + .input-dock-tab {
+	margin-top: -1px;
+}
+
+.input-dock-tab:hover {
+	background: var(--bg-color-hover-drop-down-menuItem, #eef5ff);
+	color: #096dd9;
+}
+
+.input-dock-tab.active {
+	background: var(--bg-color-selected-panel-tab, #ffffff);
+	color: #1890ff;
+	font-weight: bolder;
+	/* 与右侧输入面板融合：白底 + 右边框变白 + 外扩盖过 dock 边缘与分隔条 */
+	border-right: 1px solid var(--bg-color-selected-panel-tab, #ffffff);
+	box-shadow: inset 2px 0 #1890ff;
+	z-index: 1;
+}
+
+.input-dock-tab:focus-visible {
+	outline: 1px solid rgba(24, 144, 255, 0.2);
+	outline-offset: -1px;
+}
+
+.input-panel,
+.wave-panel,
+.bottom-panel {
+	min-width: 0;
+	min-height: 0;
+	background: #ffffff;
+	border-right: 1px solid #d9d9d9;
+}
+
+.input-panel {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.input-view {
+	display: none;
+	grid-template-rows: 52px minmax(0, 1fr);
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+}
+
+.input-view.active {
+	display: grid;
+}
+
+.panel-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	flex: 0 0 auto;
+}
+
+.splitter {
+	background: #e8eaed;
+	z-index: 2;
+}
+
+.splitter:hover {
+	background: #91d5ff;
+}
+
+.splitter-vertical {
+	cursor: col-resize;
+	border-left: 1px solid #d9d9d9;
+	border-right: 1px solid #d9d9d9;
+}
+
+.splitter-horizontal {
+	cursor: row-resize;
+	border-top: 1px solid #d9d9d9;
+	border-bottom: 1px solid #d9d9d9;
+}
+
+.panel-head,
+.chart-head,
+.log-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px;
+	border-bottom: 1px solid #d9d9d9;
+	min-width: 0;
+}
+
+.panel-head > :first-child {
+	min-width: 0;
+	overflow: hidden;
+}
+
+.panel-head h2,
+.panel-head p {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.netlist-editor {
+	width: 100%;
+	height: 100%;
+	border: 0;
+	resize: none;
+	outline: none;
+	padding: 8px;
+	background: #fbfcfd;
+	color: #222222;
+	font-family: Consolas, "Courier New", monospace;
+	font-size: 12px;
+	line-height: 18px;
+	tab-size: 2;
+}
+
+.wave-panel {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+	border-right: 0;
+	background: #f3f5f8;
+}
+
+/* 分析视图 tab（波形图/直方图/逻辑分析）：EasyEDA 面板标签规范 —
+   未选中自带 1px 边框；选中指示线 3px solid #1890ff，bolder #1890ff，12px。
+   左对齐贴边；选中 tab 底边用白线消失，与图页同为白底无缝连成一体。 */
+.analysis-view-tabs {
+	display: flex;
+	align-items: stretch;
+	justify-content: flex-start;
+	gap: 0;
+	padding: 0;
+	background: var(--bg-color-panel-tabs, #f3f5f8);
+	flex: 0 0 auto;
+}
+
+.analysis-view-tab {
+	position: relative;
+	height: 28px;
+	padding: 0 18px;
+	border: 1px solid var(--common-border-color, #e9e9e9);
+	background: var(--bg-color-panel-tab, #f0f0f0);
+	color: #5f6874;
+	cursor: pointer;
+	white-space: nowrap;
+	font-size: 12px;
+}
+
+.analysis-view-tab + .analysis-view-tab {
+	margin-left: -1px;
+}
+
+.analysis-view-tab:hover {
+	color: #096dd9;
+	border-color: var(--border-color-hover-panel-tab, #222);
+}
+
+.analysis-view-tab.active {
+	background: var(--bg-color-selected-panel-tab, #ffffff);
+	color: #1890ff;
+	font-weight: bolder;
+	border-color: var(--common-border-color, #e9e9e9);
+	border-bottom: 1px solid var(--bg-color-selected-panel-tab, #ffffff);
+	margin-bottom: -1px;
+}
+
+.analysis-view-tab.active::before {
+	content: "";
+	position: absolute;
+	top: -1px;
+	left: -1px;
+	right: -1px;
+	border-top: 3px solid #1890ff;
+}
+
+/* 多数据集 tab（同类面板标签）：未选中自带 1px 边框；选中与内容页融合。 */
+.result-tabs {
+	display: flex;
+	align-items: stretch;
+	gap: 0;
+	padding: 0;
+	background: var(--bg-color-panel-tabs, #f3f5f8);
+	overflow: auto hidden;
+	flex: 0 0 auto;
+}
+
+.result-tab {
+	position: relative;
+	height: 28px;
+	border: 1px solid var(--common-border-color, #e9e9e9);
+	background: var(--bg-color-panel-tab, #f0f0f0);
+	color: #333333;
+	padding: 0 8px;
+	cursor: pointer;
+	white-space: nowrap;
+	font-size: 12px;
+}
+
+.result-tab + .result-tab {
+	margin-left: -1px;
+}
+
+.result-tab span {
+	margin-left: 4px;
+	color: #868686;
+}
+
+.result-tab.active {
+	background: var(--bg-color-selected-panel-tab, #ffffff);
+	color: #1890ff;
+	font-weight: bolder;
+	border-bottom: 1px solid var(--bg-color-selected-panel-tab, #ffffff);
+	margin-bottom: -1px;
+}
+
+.result-tab.active::before {
+	content: "";
+	position: absolute;
+	top: -1px;
+	left: -1px;
+	right: -1px;
+	border-top: 3px solid #1890ff;
+}
+
+.chart-card {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+	background: #ffffff;
+}
+
+.chart-head {
+	min-height: 36px;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	flex-wrap: nowrap;
+	gap: 5px;
+	padding: 4px 8px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	flex: 0 0 auto;
+}
+
+.chart-context {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: max-content;
+	flex: 1 0 auto;
+}
+
+.chart-context h2 {
+	font-size: 13px;
+	line-height: 20px;
+	font-weight: 600;
+	flex: 0 0 auto;
+	min-width: max-content;
+	white-space: nowrap;
+}
+
+.chart-head .head-actions {
+	flex: 0 0 auto;
+	flex-wrap: nowrap;
+	white-space: nowrap;
+	margin-left: auto;
+}
+
+.analysis-common-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 0;
+	flex: 0 0 auto;
+}
+
+.histogram-actions {
+	flex-wrap: nowrap;
+}
+
+.histogram-measurement-control,
+.histogram-spec-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: #5f6874;
+	white-space: nowrap;
+}
+
+.histogram-measurement-control .eda-select {
+	min-width: 150px;
+	max-width: 220px;
+}
+
+.histogram-mode-control {
+	display: inline-flex;
+	height: 28px;
+	border: 1px solid #d9d9d9;
+	border-radius: 2px;
+	overflow: hidden;
+}
+
+.histogram-mode-button {
+	min-width: 44px;
+	padding: 0 8px;
+	border: 0;
+	border-right: 1px solid #d9d9d9;
+	background: #ffffff;
+	color: #5f6874;
+	cursor: pointer;
+}
+
+.histogram-mode-button:last-child {
+	border-right: 0;
+}
+
+.histogram-mode-button.active {
+	background: #e6f7ff;
+	color: #096dd9;
+}
+
+.badges {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-wrap: nowrap;
+	justify-content: flex-end;
+	white-space: nowrap;
+}
+
+.chart-meta {
+	color: #868686;
+	font-size: 12px;
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.plot-shell {
+	min-height: 0;
+	padding: 0;
+	background: #ffffff;
+	flex: 1 1 auto;
+}
+
+#chart,
+#histogramChart,
+#logicChart {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	min-height: 220px;
+	border: 0;
+	background: #f7f8fa;
+}
+
+
+.waveform-inspector {
+	position: absolute;
+	z-index: 10002;
+	width: 228px;
+	padding: 8px;
+	border: 1px solid #d9d9d9;
+	border-radius: 3px;
+	background: #ffffff;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+	color: #333333;
+	pointer-events: auto;
+}
+
+.waveform-inspector-header {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	font-weight: 600;
+}
+
+.waveform-inspector-axis,
+.waveform-inspector-unit {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.waveform-inspector-input {
+	flex: 0 0 auto;
+	width: calc(6ch + 6px);
+	min-width: 0;
+	height: 22px;
+	padding: 0 2px;
+	border: 1px solid #bfbfbf;
+	border-radius: 2px;
+	background: #ffffff;
+	color: #262626;
+	font: 12px Consolas, "Courier New", monospace;
+}
+
+.waveform-inspector-input:focus {
+	border-color: #1890ff;
+	outline: 1px solid #91d5ff;
+}
+
+.waveform-inspector-input[aria-invalid="true"] {
+	border-color: #d32029;
+	outline-color: #ffa39e;
+}
+
+.waveform-inspector-rows {
+	display: grid;
+	gap: 2px;
+	margin-top: 6px;
+}
+
+.waveform-inspector-row {
+	display: grid;
+	grid-template-columns: 9px minmax(0, 1fr);
+	align-items: center;
+	gap: 5px;
+	height: 18px;
+}
+
+.waveform-inspector-swatch {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+
+.waveform-inspector-value {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+

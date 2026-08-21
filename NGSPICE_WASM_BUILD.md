@@ -106,13 +106,14 @@ Emscripten 链接参数：
 -sEXPORT_NAME=createNgspiceModule
 -sENVIRONMENT=web,worker,node
 -sALLOW_MEMORY_GROWTH=1
+-sINITIAL_MEMORY=536870912
+-sSTACK_SIZE=8388608
 -sMAIN_MODULE=1
 -Wl,--allow-multiple-definition
 -sFORCE_FILESYSTEM=1
 -sINVOKE_RUN=0
 -sEXIT_RUNTIME=1
--sEXPORTED_FUNCTIONS=_main
--sEXPORTED_RUNTIME_METHODS=FS,callMain,loadDynamicLibrary
+-sEXPORTED_RUNTIME_METHODS=loadDynamicLibrary,ccall,cwrap,addFunction,UTF8ToString,stringToUTF8,FS,ENV
 ```
 
 XSPICE 需要：
@@ -121,6 +122,25 @@ XSPICE 需要：
 - XSPICE `.cm` 使用 `SIDE_MODULE=1`。
 - 运行时暴露 `loadDynamicLibrary`。
 - 插件启动后把 `.cm` 写入 Emscripten FS 的 `/usr/lib/ngspice/`，并写入 `/usr/share/ngspice/scripts/spinit`。
+
+## Wrapper 与结果协议
+
+`wasm-build/sharedspice-wrapper/` 只暴露仿真引擎生命周期能力：
+
+```text
+loadNetlist -> command / run -> getRawResultJson -> clearResultData -> reset
+```
+
+`getRawResultJson()` 返回结果协议 v2。它直接描述 ngspice 的 `plots[] / vectors[]`，保留向量名称、限定名、实数/复数类型、向量类型/标志、实部和虚部，并附带 XSPICE event、`.meas` 和诊断信息。wrapper 不再按 TRAN、AC、DC 建立不同 C++ 数据结构；分析语义转换位于 TypeScript `src/infrastructure/ngspice/`。
+
+单向量或单 event node 超过 100,000 点时，wrapper 不跨边界复制该数组，并在 diagnostics 中返回错误。修改 wrapper 后至少执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\wasm-build\build-ngspice-wasm.windows.ps1 -SkipToolBootstrap -Jobs 4 -LinkMode fast
+npm.cmd run test:wasm
+```
+
+`test:wasm` 使用真实 `wasm-lib` 产物验证协议 v2、`save` 后重复运行、`.meas` 和 XSPICE 原生事件，不属于纯 mock 单元测试。
 
 ## 重新打插件包
 
@@ -133,7 +153,7 @@ npm.cmd run build
 当前生成的插件包位置：
 
 ```text
-build/dist/simulation-with-ngspice_v1.2.1.eext
+build/dist/simulation-with-ngspice_v1.2.3.eext
 ```
 
 ## XSPICE 验证
@@ -171,3 +191,19 @@ build/dist/*.eext（保留当前要发布的包即可）
 `third_party/emsdk/` 是项目内置 Emscripten 工具链，用来让其他机器只安装 MSYS2 就能本地复现 WASM 构建，不再作为普通中间产物清理。
 
 真正会进入插件包的是 `.edaignore` 过滤后的文件，尤其是 `iframe/wasm/` 和 `dist/`。
+
+## 首次清理与增量续编
+
+正式验证 sharedspice 构建时，第一次建议带 `-Clean`，清掉旧的半构建目录和旧运行时产物：
+
+```powershell
+.\wasm-build\build-ngspice-wasm.windows.ps1 -SkipToolBootstrap -Jobs 8 -LinkMode fast -Clean
+```
+
+如果构建中途失败或中断，修复问题后不要再带 `-Clean`，直接续跑：
+
+```powershell
+.\wasm-build\build-ngspice-wasm.windows.ps1 -SkipToolBootstrap -Jobs 8 -LinkMode fast
+```
+
+增量续编会复用 `wasm-build/work/ngspice-46/` 和 `wasm-lib/`。configure 输入未变化时会跳过 configure，`make` 会从已有对象文件继续，wrapper 链接阶段会重新生成最终 `ngspice.js/wasm`。

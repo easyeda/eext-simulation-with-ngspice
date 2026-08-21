@@ -1,0 +1,33 @@
+.tolerance-parameter-table {
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+	background: #fbfcfd;
+}
+
+.wc-table tr.wc-run-row {
+	cursor: pointer;
+}
+
+.wc-table tr.wc-run-row:hover td {
+	background: #f5faff;
+}
+
+.wc-table tr.wc-run-row.active td {
+	background: #e6f7ff;
+	color: #096dd9;
+}
+
+.wc-table tr.disabled td {
+	color: #8c8c8c;
+	background: #fafafa;
+}
+
+.wc-table .wc-assignments {
+	max-width: 360px;
+	font-family: Consolas, "Courier New", monospace;
+}
+
+.wc-mode .analysis-view-tabs {
+	display: none;
+}

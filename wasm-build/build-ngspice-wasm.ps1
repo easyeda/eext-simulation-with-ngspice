@@ -61,7 +61,13 @@ if ($BuildDir) { $env:NGSPICE_BUILD_DIR = $BuildDir }
 if ($OutputDir) { $env:NGSPICE_OUTPUT_DIR = $OutputDir }
 if ($Jobs -gt 0) { $env:JOBS = [string] $Jobs }
 $env:NGSPICE_LINK_MODE = $LinkMode
-if ($Clean) { $env:NGSPICE_CLEAN = "1" } else { Remove-Item Env:\NGSPICE_CLEAN -ErrorAction SilentlyContinue }
+if ($Clean) {
+	Write-Host "Clean build requested. If this build is interrupted, rerun without -Clean to resume incrementally."
+	$env:NGSPICE_CLEAN = "1"
+} else {
+	Write-Host "Incremental build requested. Existing wasm-build/work and wasm-lib artifacts will be reused."
+	Remove-Item Env:\NGSPICE_CLEAN -ErrorAction SilentlyContinue
+}
 
 & $bash $scriptPath
 if ($LASTEXITCODE -ne 0) {

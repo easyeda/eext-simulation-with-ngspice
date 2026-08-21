@@ -1,0 +1,110 @@
+.eda-app.wave-expanded {
+	grid-template-rows: minmax(0, 1fr);
+}
+
+.wave-expanded .top-bar,
+.wave-expanded .input-dock,
+.wave-expanded .input-panel,
+.wave-expanded .bottom-panel,
+.wave-expanded .splitter,
+.wave-expanded .result-tabs {
+	display: none;
+}
+
+.wave-expanded .analysis-view-tabs {
+	display: none;
+}
+
+.wave-expanded .workbench {
+	display: block;
+	height: 100%;
+}
+
+.wave-expanded .wave-panel {
+	height: 100%;
+	grid-template-rows: minmax(0, 1fr);
+}
+
+.wave-expanded .chart-card {
+	height: 100%;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.wave-expanded .chart-head {
+	min-height: 36px;
+	padding: 4px 8px;
+}
+
+.wave-expanded .badges {
+	display: none;
+}
+
+.wave-expanded .plot-shell {
+	padding: 0;
+}
+
+.wave-expanded #chart,
+.wave-expanded #histogramChart {
+	border: 0;
+	min-height: 0;
+}
+
+.icon {
+	width: 16px;
+	height: 16px;
+	display: block;
+	flex: 0 0 auto;
+	pointer-events: none;
+}
+
+.spinner {
+	width: 12px;
+	height: 12px;
+	border: 2px solid rgba(255, 255, 255, 0.45);
+	border-top-color: #ffffff;
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (max-width: 900px) {
+	.eda-app {
+		grid-template-rows: auto minmax(0, 1fr) 4px var(--bottom-panel-height, 180px);
+	}
+
+	.top-bar,
+	.toolbar {
+		align-items: center;
+	}
+
+	.top-bar {
+		flex-direction: row;
+		overflow: hidden;
+	}
+
+	.brand-block {
+		width: auto;
+		flex: 0 0 220px;
+	}
+
+	.toolbar {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		justify-content: flex-start;
+	}
+
+	.workbench {
+		grid-template-columns: 32px minmax(0, var(--left-panel-effective-width)) 4px minmax(0, 1fr);
+		grid-template-rows: none;
+	}
+
+	.input-panel {
+		border-right: 1px solid #d9d9d9;
+		border-bottom: 0;
+	}
+}

@@ -42,6 +42,7 @@ SOURCE_ARCHIVE="$(to_unix_path "${NGSPICE_SOURCE_ARCHIVE:-${ROOT_DIR}/third_part
 SOURCE_DIR="$(to_unix_path "${NGSPICE_SOURCE_DIR:-${ROOT_DIR}/third_party/ngspice-46}")"
 BUILD_DIR="$(to_unix_path "${NGSPICE_BUILD_DIR:-${ROOT_DIR}/wasm-build/work/ngspice-46}")"
 OUTPUT_DIR="$(to_unix_path "${NGSPICE_OUTPUT_DIR:-${ROOT_DIR}/wasm-lib}")"
+SHAREDSPICE_WRAPPER_DIR="$(to_unix_path "${NGSPICE_SHAREDSPICE_WRAPPER_DIR:-${ROOT_DIR}/wasm-build/sharedspice-wrapper}")"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 CLEAN_BUILD="${NGSPICE_CLEAN:-0}"
 LINK_MODE="${NGSPICE_LINK_MODE:-release}"
@@ -71,6 +72,36 @@ ensure_tool_wrapper() {
   if [[ -z "$WRAPPER_DIR" ]]; then
     WRAPPER_DIR="$(mktemp -d)"
     export PATH="${WRAPPER_DIR}:${PATH}"
+  fi
+  if [[ "$tool" = "emar" ]]; then
+    cat > "${WRAPPER_DIR}/${tool}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+emar_bat="$(command -v emar.bat)"
+emar_dir="$(dirname "$emar_bat")"
+emar_py="${emar_dir}/emar.py"
+python_exe="${EMSDK_PYTHON:-python}"
+if command -v cygpath >/dev/null 2>&1 && [[ "$python_exe" =~ ^[A-Za-z]:\\ ]]; then
+  python_exe="$(cygpath -u "$python_exe")"
+fi
+
+arg_len=0
+for arg in "$@"; do
+  arg_len=$((arg_len + ${#arg} + 1))
+done
+
+if (( arg_len > 20000 )); then
+  rsp="$(mktemp)"
+  trap 'rm -f "$rsp"' EXIT
+  printf '%s\n' "$@" > "$rsp"
+  "$python_exe" -E "$emar_py" @"$rsp"
+else
+  "$python_exe" -E "$emar_py" "$@"
+fi
+EOF
+    chmod +x "${WRAPPER_DIR}/${tool}"
+    return 0
   fi
   cat > "${WRAPPER_DIR}/${tool}" <<EOF
 #!/usr/bin/env bash
@@ -110,6 +141,15 @@ require_tool make
 require_tool node
 require_tool tar
 
+if [[ "$CLEAN_BUILD" = "1" || "$CLEAN_BUILD" = "true" ]]; then
+  echo "Clean build requested, removing generated ngspice source/build/output directories."
+  echo "If this run is interrupted, rerun without NGSPICE_CLEAN to reuse the new build directory."
+  rm -rf "$SOURCE_DIR" "$BUILD_DIR" "$OUTPUT_DIR"
+else
+  echo "Incremental build requested."
+  echo "Reusing source/build/output directories when present; make will continue from existing objects."
+fi
+
 if [[ -d "$SOURCE_DIR" && ! -x "${SOURCE_DIR}/configure" ]]; then
   if [[ ! -f "$SOURCE_ARCHIVE" ]]; then
     echo "Source directory is incomplete and source archive was not found: $SOURCE_ARCHIVE" >&2
@@ -135,8 +175,7 @@ if [[ ! -x "${SOURCE_DIR}/configure" ]]; then
 fi
 
 if [[ "$CLEAN_BUILD" = "1" || "$CLEAN_BUILD" = "true" ]]; then
-  echo "Clean build requested, removing: $BUILD_DIR"
-  rm -rf "$BUILD_DIR"
+  echo "Clean build enabled, starting from an empty build directory: $BUILD_DIR"
 else
   echo "Incremental build enabled, reusing: $BUILD_DIR"
 fi
@@ -150,8 +189,8 @@ case "$(uname -s)" in
     ;;
 esac
 
-export CFLAGS="${CFLAGS:--O2 -include stdlib.h}"
-export CXXFLAGS="${CXXFLAGS:--O2 -include stdlib.h}"
+export CFLAGS="${CFLAGS:--O2 -fPIC -include stdlib.h}"
+export CXXFLAGS="${CXXFLAGS:--O2 -fPIC -include stdlib.h}"
 export LDFLAGS="${LDFLAGS:-} ${LINK_OPTIMIZATION} \
   -Wl,--allow-multiple-definition \
   -sMODULARIZE=1 \
@@ -170,6 +209,7 @@ CONFIGURE_ARGS=(
   --disable-dependency-tracking
   --disable-shared
   --enable-static
+  --with-ngshared
   --enable-xspice
   --disable-cider
   --disable-osdi
@@ -193,23 +233,23 @@ CONFIGURE_SIGNATURE="$(
   printf 'args=%s\n' "${CONFIGURE_ARGS[*]}"
 )"
 
-if [[ -f "$CONFIGURE_STAMP" ]] && [[ "$(cat "$CONFIGURE_STAMP")" = "$CONFIGURE_SIGNATURE" ]] && [[ -f Makefile ]]; then
-  echo "Configure inputs unchanged, skipping configure."
-else
-  echo "Running configure."
-  if [[ "$USE_DIRECT_EMSCRIPTEN_TOOLS" = "1" ]]; then
-  CC=emcc \
-  CXX=em++ \
-  AR=emar \
-  RANLIB=emranlib \
-  NM=emnm \
-  cross_compiling=yes \
-  "${CONFIGURE_COMMAND[@]}" "${CONFIGURE_ARGS[@]}"
-  mkdir -p src/xspice/cmpp/build
+build_windows_cmpp_host() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *) return 0 ;;
+  esac
+
+  local cmpp_dir="${BUILD_DIR}/src/xspice/cmpp/build"
+  local cmpp_exe="${cmpp_dir}/cmpp.exe"
+  if [[ -x "$cmpp_exe" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$cmpp_dir"
   gcc \
-    -I src/xspice/cmpp \
+    -I "${BUILD_DIR}/src/xspice/cmpp" \
     -I "${SOURCE_DIR}/src/xspice/cmpp" \
-    -o src/xspice/cmpp/build/cmpp.exe \
+    -o "$cmpp_exe" \
     "${SOURCE_DIR}/src/xspice/cmpp/main.c" \
     "${SOURCE_DIR}/src/xspice/cmpp/file_buffer.c" \
     "${SOURCE_DIR}/src/xspice/cmpp/pp_ifs.c" \
@@ -223,31 +263,164 @@ else
     "${SOURCE_DIR}/src/xspice/cmpp/mod_lex.c" \
     "${SOURCE_DIR}/src/xspice/cmpp/mod_yacc.c" \
     -lshlwapi
-  sed -i 's|^CMPP = .*$|CMPP = $(top_builddir)/src/xspice/cmpp/build/cmpp.exe|' src/xspice/icm/makedefs
-  sed -i 's|^LDFLAGS = -shared.*$|LDFLAGS = -shared -sSIDE_MODULE=1|' src/xspice/icm/makedefs
-  sed -i 's|^    cmpp = ../cmpp/cmpp.exe$|    cmpp = ../../../src/xspice/cmpp/build/cmpp.exe|' src/xspice/icm/GNUmakefile
-  sed -i 's|^    cmpp = ../cmpp/cmpp$|    cmpp = ../../../src/xspice/cmpp/build/cmpp.exe|' src/xspice/icm/GNUmakefile
-  sed -i 's|^SUBDIRS = .*$|SUBDIRS = mif cm enh evt idn cmpp icm|' src/xspice/Makefile
+}
+
+patch_ngspice_wasm_makefiles() {
+  if [[ -f "${SOURCE_DIR}/src/sharedspice.c" ]]; then
+    sed -i 's/pfcn(outsend, userptr);/pfcn(outsend, ng_ident, userptr);/' "${SOURCE_DIR}/src/sharedspice.c"
+    python - "$SOURCE_DIR/src/sharedspice.c" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+text = text.replace(
+    '    if (!cp_getvar("nosighandling", CP_BOOL, NULL, 0))\n'
+    '        old_sigsegv = signal(SIGSEGV, (SIGNAL_FUNCTION) sigsegvsh);\n',
+    '#ifndef __EMSCRIPTEN__\n'
+    '    if (!cp_getvar("nosighandling", CP_BOOL, NULL, 0))\n'
+    '        old_sigsegv = signal(SIGSEGV, (SIGNAL_FUNCTION) sigsegvsh);\n'
+    '#endif\n'
+)
+text = text.replace(
+    '    if (!cp_getvar("nosighandling", CP_BOOL, NULL, 0))\n'
+    '        signal(SIGSEGV, old_sigsegv);\n',
+    '#ifndef __EMSCRIPTEN__\n'
+    '    if (!cp_getvar("nosighandling", CP_BOOL, NULL, 0))\n'
+    '        signal(SIGSEGV, old_sigsegv);\n'
+    '#endif\n'
+)
+path.write_text(text)
+PY
+  fi
+
+  if [[ ! -f "${BUILD_DIR}/Makefile" ]]; then
+    return 0
+  fi
+
+  if [[ -f "${BUILD_DIR}/libtool" ]] && ! grep -q "^func__fatal_error ()" "${BUILD_DIR}/libtool"; then
+    awk '
+      {print}
+      $0 ~ /^func_fatal_error \(\)/ {in_func=1}
+      in_func && $0 ~ /^}$/ {
+        print "";
+        print "# 某些 libtool 模板要求 func__fatal_error，此处转发到 func_fatal_error。";
+        print "func__fatal_error ()";
+        print "{";
+        print "    func_fatal_error \"$@\"";
+        print "}";
+        in_func=0;
+      }
+    ' "${BUILD_DIR}/libtool" > "${BUILD_DIR}/libtool.tmp"
+    mv "${BUILD_DIR}/libtool.tmp" "${BUILD_DIR}/libtool"
+    chmod +x "${BUILD_DIR}/libtool"
+  fi
+
+  find "$BUILD_DIR" -type f -name Makefile -exec sed -i 's/^STATIC = -shared$/STATIC = /' {} +
+
+  if [[ -f "${BUILD_DIR}/src/Makefile" ]]; then
+    sed -i 's/^libngspice_la_CFLAGS = -shared$/libngspice_la_CFLAGS = /' "${BUILD_DIR}/src/Makefile"
+    sed -i 's/^libngspice_la_LDFLAGS = -shared /libngspice_la_LDFLAGS = /' "${BUILD_DIR}/src/Makefile"
+  fi
+
+  if [[ -f "${BUILD_DIR}/src/xspice/Makefile" ]]; then
+    sed -i 's/^SUBDIRS = .*$/SUBDIRS = mif cm enh evt idn cmpp icm/' "${BUILD_DIR}/src/xspice/Makefile"
+  fi
+
+  build_windows_cmpp_host
+
+  if [[ -f "${BUILD_DIR}/src/xspice/icm/makedefs" ]]; then
+    sed -i 's|^CMPP = .*$|CMPP = $(top_builddir)/src/xspice/cmpp/build/cmpp.exe|' "${BUILD_DIR}/src/xspice/icm/makedefs"
+    sed -i 's|^[[:space:]]*LDFLAGS = .*$|LDFLAGS = -s SIDE_MODULE=1|' "${BUILD_DIR}/src/xspice/icm/makedefs"
+    sed -i 's|^CFLAGS = .*$|CFLAGS = -O2 -fPIC -include stdlib.h -fvisibility=hidden|' "${BUILD_DIR}/src/xspice/icm/makedefs"
+  fi
+
+  if [[ -f "${BUILD_DIR}/src/xspice/icm/GNUmakefile" ]]; then
+    sed -i 's|^[[:space:]]*cmpp = .*$|    cmpp = $(CMPP)|' "${BUILD_DIR}/src/xspice/icm/GNUmakefile"
+  fi
+}
+
+if [[ -f "$CONFIGURE_STAMP" ]] && [[ "$(cat "$CONFIGURE_STAMP")" = "$CONFIGURE_SIGNATURE" ]] && [[ -f Makefile ]]; then
+  echo "Configure inputs unchanged, skipping configure."
+else
+  echo "Running configure."
+  if [[ "$USE_DIRECT_EMSCRIPTEN_TOOLS" = "1" ]]; then
+  CC=emcc \
+  CXX=em++ \
+  AR=emar \
+  RANLIB=emranlib \
+  NM=emnm \
+  cross_compiling=yes \
+  "${CONFIGURE_COMMAND[@]}" "${CONFIGURE_ARGS[@]}"
   else
     emconfigure "${CONFIGURE_COMMAND[@]}" "${CONFIGURE_ARGS[@]}"
   fi
   printf '%s' "$CONFIGURE_SIGNATURE" > "$CONFIGURE_STAMP"
 fi
 
+patch_ngspice_wasm_makefiles
+
 make -j "$JOBS"
 
-NGSPICE_JS="$(find "$BUILD_DIR" -type f \( -name 'ngspice.js' -o -name 'ngspice*.js' \) | head -n 1)"
-NGSPICE_WASM="$(find "$BUILD_DIR" -type f \( -name 'ngspice.wasm' -o -name 'ngspice*.wasm' \) | head -n 1)"
+build_sharedspice_wrapper_module() {
+  local libngspice="${BUILD_DIR}/src/.libs/libngspice.a"
+  if [[ ! -d "$SHAREDSPICE_WRAPPER_DIR" ]]; then
+    echo "Sharedspice wrapper directory not found: $SHAREDSPICE_WRAPPER_DIR" >&2
+    return 1
+  fi
+  if [[ ! -f "$libngspice" ]]; then
+    echo "libngspice.a was not built: $libngspice" >&2
+    echo "The sharedspice wrapper requires configure --with-ngshared to produce this archive." >&2
+    return 1
+  fi
 
-if [[ -z "$NGSPICE_JS" || -z "$NGSPICE_WASM" ]]; then
-  echo "Build finished, but ngspice.js/ngspice.wasm was not found under: $BUILD_DIR" >&2
-  echo "Check config.log and make output. Emscripten may have produced a different executable name." >&2
-  exit 1
-fi
+  local embed_args=()
+  local model
+  for model in spice2poly analog digital xtradev xtraevt table tlines; do
+    local cm_path="${BUILD_DIR}/src/xspice/icm/${model}/${model}.cm"
+    if [[ -f "$cm_path" ]]; then
+      embed_args+=(--embed-file "${cm_path}@/usr/local/lib/ngspice/${model}.cm")
+      embed_args+=(--embed-file "${cm_path}@/usr/lib/ngspice/${model}.cm")
+    fi
+  done
 
-cp "$NGSPICE_JS" "${OUTPUT_DIR}/ngspice.js"
-cp "$NGSPICE_WASM" "${OUTPUT_DIR}/ngspice.wasm"
-cp "${ROOT_DIR}/iframe/wasm/ngspice-global.js" "${OUTPUT_DIR}/ngspice-global.js"
+  local spinit_path="${BUILD_DIR}/src/spinit"
+  if [[ -f "$spinit_path" ]]; then
+    embed_args+=(--embed-file "${spinit_path}@/usr/local/share/ngspice/scripts/spinit")
+    embed_args+=(--embed-file "${spinit_path}@/usr/share/ngspice/scripts/spinit")
+  fi
+
+  echo "Building NgSpiceWasm embind module from: $SHAREDSPICE_WRAPPER_DIR"
+  em++ -o "${OUTPUT_DIR}/ngspice.js" \
+    "${SHAREDSPICE_WRAPPER_DIR}/ngspice_de_cpp.cpp" \
+    "${SHAREDSPICE_WRAPPER_DIR}/ngspice_wasm_stubs.c" \
+    "${SHAREDSPICE_WRAPPER_DIR}/main_stub.c" \
+    -Wl,--whole-archive "$libngspice" -Wl,--no-whole-archive \
+    -I"${SHAREDSPICE_WRAPPER_DIR}" \
+    -I"${SOURCE_DIR}/src/include/ngspice" \
+    -I"${SOURCE_DIR}/src/include" \
+    -I"${BUILD_DIR}/src/include/ngspice" \
+    -I"${BUILD_DIR}/src/include" \
+    -Wl,--allow-multiple-definition \
+    -sMAIN_MODULE=1 \
+    -sMODULARIZE=1 \
+    -sEXPORT_NAME=createNgspiceModule \
+    -sENVIRONMENT=web,worker,node \
+    -sALLOW_MEMORY_GROWTH=1 \
+    -sINITIAL_MEMORY=536870912 \
+    -sSTACK_SIZE=8388608 \
+    -sFORCE_FILESYSTEM=1 \
+    -sINVOKE_RUN=0 \
+    -sEXIT_RUNTIME=1 \
+    -sEXPORTED_RUNTIME_METHODS="['loadDynamicLibrary','ccall','cwrap','addFunction','UTF8ToString','stringToUTF8','FS','ENV']" \
+    -sERROR_ON_UNDEFINED_SYMBOLS=0 \
+    -sASSERTIONS=0 \
+    "${embed_args[@]}" \
+    --bind
+}
+
+build_sharedspice_wrapper_module
+cp "${SCRIPT_DIR}/ngspice-global.js" "${OUTPUT_DIR}/ngspice-global.js"
 cp "${SOURCE_DIR}/COPYING" "${OUTPUT_DIR}/NGSPICE-COPYING.txt"
 cp "${SOURCE_DIR}/AUTHORS" "${OUTPUT_DIR}/NGSPICE-AUTHORS.txt"
 
