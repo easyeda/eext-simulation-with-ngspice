@@ -9,7 +9,7 @@ import type { SimulationResult } from "../../shared/waveform";
 
 export interface CommonRunOptions {
 	probeNodes?: ProbeTarget[];
-	/** 可选。ngspice 兼容模式（ngbehavior），空/缺省 = 不兼容。例如 "ps"、"ltpsa"、"hs"。 */
+	/** 可选。ngspice 兼容网表（ngbehavior），空/缺省 = 不兼容。例如 "ps"、"ltpsa"、"hs"。 */
 	compatMode?: string;
 }
 

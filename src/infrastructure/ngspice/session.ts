@@ -35,7 +35,7 @@ export interface ProbeRegistrationTarget {
 
 export interface OpenNgspiceSessionOptions extends WasmNgspiceRunOptions {
 	capturePolicy?: SpiceSessionCapturePolicy;
-	/** 可选。ngspice 兼容模式（ngbehavior），空/缺省 = 不兼容。例如 "ps"、"ltpsa"、"hs"。 */
+	/** 可选。ngspice 兼容网表（ngbehavior），空/缺省 = 不兼容。例如 "ps"、"ltpsa"、"hs"。 */
 	compatMode?: string;
 }
 

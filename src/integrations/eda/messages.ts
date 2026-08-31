@@ -52,7 +52,7 @@ export interface NetlistImportMessage {
 	analysis: AnalysisPayload;
 	/** 外部可省略。只控制初始可见曲线，不限制 ngspice 采集的节点。 */
 	defaultVisibleProbes: ProbeDescriptor[];
-	/** 可选。ngspice 兼容模式（ngbehavior 标志），如 "ps"、"psa"、"ltpsa"、"hs"、"spe"、"ki"、"s3"、"eg"。
+	/** 可选。ngspice 兼容网表（ngbehavior 标志），如 "ps"、"psa"、"ltpsa"、"hs"、"spe"、"ki"、"s3"、"eg"。
 	 * 缺省或空字符串 = 不兼容（默认 Spice3 行为）。仅允许字母。 */
 	compatMode?: string;
 }
@@ -76,7 +76,7 @@ export function parseNetlistImportMessage(value: unknown): NetlistImportMessage 
 	};
 }
 
-/** 解析可选兼容模式。缺省/空 -> undefined；非字母或非法字符 -> null（协议错误）。 */
+/** 解析可选兼容网表。缺省/空 -> undefined；非字母或非法字符 -> null（协议错误）。 */
 function parseCompatMode(value: unknown): string | null | undefined {
 	if (value === undefined || value === null) return undefined;
 	const raw = readString(value);

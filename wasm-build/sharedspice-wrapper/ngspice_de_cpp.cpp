@@ -305,7 +305,7 @@ ngspice_de::ngspice_de(const std::string &circuit, const std::string &compatMode
 		recordExit(initialized, false);
 		return;
 	}
-	/* 在网表解析(source)之前按会话设置 ngspice 兼容模式（ngbehavior）。
+	/* 在网表解析(source)之前按会话设置 ngspice 兼容网表（ngbehavior）。
 	 * compatMode 为空 -> 复位为默认（不兼容），否则 set ngbehavior=<mode>。 */
 	if (compatMode.empty()) {
 		ngSpice_Command(const_cast<char *>("unset ngbehavior"));

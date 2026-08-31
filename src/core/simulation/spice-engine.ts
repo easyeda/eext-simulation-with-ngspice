@@ -97,7 +97,7 @@ export interface OpenSpiceSessionOptions {
 	probeNodes?: ProbeTarget[];
 	capturePolicy?: SpiceSessionCapturePolicy;
 	signal?: AbortSignal;
-	/** 可选。ngspice 兼容模式（ngbehavior），空/缺省 = 不兼容。例如 "ps"、"ltpsa"、"hs"。 */
+	/** 可选。ngspice 兼容网表（ngbehavior），空/缺省 = 不兼容。取值同界面下拉："psa" / "lta" / "hsa" / "ltpsa"。 */
 	compatMode?: string;
 }
 
