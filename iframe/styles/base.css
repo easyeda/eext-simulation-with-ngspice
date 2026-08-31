@@ -53,20 +53,21 @@ select {
 }
 
 .brand-mark {
-	width: 16px;
-	height: 16px;
+	--brand-mark-bg: #102a43;
+	--brand-mark-border: transparent;
+	--brand-mark-stroke: #4dabf7;
+	--brand-mark-node: #38d9a9;
+	/* 深色模式预留浅色方案：背景 #e7f5ff，边框 #a5d8ff，连线 #1971c2，节点 #0ca678。 */
+	width: 20px;
+	height: 20px;
 	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border: 1px solid #096dd9;
-	border-radius: 2px;
-	background: #1890ff;
-	color: #ffffff;
-	font-family: Arial, sans-serif;
-	font-size: 10px;
-	font-weight: 700;
-	line-height: 1;
 	flex: 0 0 auto;
+}
+
+.brand-mark svg {
+	width: 100%;
+	height: 100%;
+	display: block;
 }
 
 .app-title,
@@ -287,4 +288,3 @@ h2 {
 	color: #5f6874;
 	background: #ffffff;
 }
-

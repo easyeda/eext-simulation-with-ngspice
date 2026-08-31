@@ -4,7 +4,14 @@ export const iframeTemplate = `
   <div class="eda-app" data-theme="light">
     <header class="top-bar">
       <div class="brand-block">
-        <span class="brand-mark" aria-hidden="true">N</span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <rect x="1" y="1" width="22" height="22" rx="5" fill="var(--brand-mark-bg)" stroke="var(--brand-mark-border)" />
+            <path d="M6 17V7L18 17V7" fill="none" stroke="var(--brand-mark-stroke)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="6" cy="7" r="1.7" fill="var(--brand-mark-node)" />
+            <circle cx="18" cy="17" r="1.7" fill="var(--brand-mark-node)" />
+          </svg>
+        </span>
         <div>
           <div class="app-title" data-i18n="app.title">NGspice 仿真</div>
         </div>
