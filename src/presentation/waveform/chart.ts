@@ -764,7 +764,9 @@ export class WaveformChart {
       if (!point) continue;
       const dotX = xToPixel(point[0]);
       const dotY = yToPixel(point[1]);
+      // 圆点超出绘图区（曲线 y 在视野外/采样点在视野边缘）直接不画，防止溢出表格。
       if (!Number.isFinite(dotX) || !Number.isFinite(dotY)) continue;
+      if (dotX < bounds.left || dotX > bounds.right || dotY < bounds.top || dotY > bounds.bottom) continue;
       graphics.push({
         id: `hover-follow-dot-${dotCount}`,
         type: "circle",
@@ -1002,6 +1004,11 @@ export class WaveformChart {
       return;
     }
     const bounds = this.plotBounds();
+    // 游标 x 在视野外（缩放后未收回来）时线会画到表格外面，出界即隐藏。
+    if (pixel < bounds.left || pixel > bounds.right) {
+      this.hideCursorGraphicLine();
+      return;
+    }
     this.chart.setOption({ graphic: this.cursorGraphicElements(pixel, bounds) }, false);
     this.updateInspector(pixel, bounds);
   }
