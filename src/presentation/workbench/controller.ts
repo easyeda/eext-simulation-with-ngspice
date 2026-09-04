@@ -22,6 +22,7 @@ export class WorkbenchController {
 
 	install() {
 		this.installSplitters();
+		this.installBlankClickCollapse();
 		installHorizontalWheelScroll(this.elements.chartToolbar);
 	}
 
@@ -68,6 +69,29 @@ export class WorkbenchController {
 		const collapsed = typeof force === 'boolean' ? force : !app.classList.contains('bottom-collapsed');
 		app.classList.toggle('bottom-collapsed', collapsed);
 		window.setTimeout(() => this.elements.resizeChart(), 60);
+	}
+
+	/** 点击 tab 栏空白区域（非 tab 按钮）切换面板收起/展开。
+	 *  pointerdown 阶段阻止默认行为，避免连续点击触发浏览器选中文本。 */
+	private installBlankClickCollapse() {
+		this.elements.inputDock.addEventListener('pointerdown', (event) => {
+			if (event.target !== this.elements.inputDock) return;
+			event.preventDefault();
+		});
+		this.elements.inputDock.addEventListener('click', (event) => {
+			if (event.target !== this.elements.inputDock) return;
+			this.toggleInputCollapsed();
+		});
+		const bottomTabs = this.elements.bottomTabs[0]?.parentElement;
+		if (!bottomTabs) return;
+		bottomTabs.addEventListener('pointerdown', (event) => {
+			if (event.target !== bottomTabs) return;
+			event.preventDefault();
+		});
+		bottomTabs.addEventListener('click', (event) => {
+			if (event.target !== bottomTabs) return;
+			this.toggleBottomCollapsed();
+		});
 	}
 
 	private installSplitters() {

@@ -64,9 +64,12 @@ const compatModeSelect = query<HTMLSelectElement>('#compatModeSelect');
 const logOutput = query<HTMLPreElement>('#logOutput');
 const inputDock = query<HTMLElement>('.input-dock');
 const inputDockButton = query<HTMLButtonElement>('#inputDockButton');
-const toleranceDockButton = query<HTMLButtonElement>('#toleranceDockButton');
+const mcSettingsDockButton = query<HTMLButtonElement>('#mcSettingsDockButton');
+const mcSettingsInputView = query<HTMLElement>('#mcSettingsInputView');
+
+const mcSampleCountVisible = query<HTMLInputElement>('#mcSampleCountVisible');
+const mcSeedVisible = query<HTMLInputElement>('#mcSeedVisible');
 const netlistInputView = query<HTMLElement>('#netlistInputView');
-const toleranceInputView = query<HTMLElement>('#toleranceInputView');
 const verticalSplitter = query<HTMLElement>('#verticalSplitter');
 const horizontalSplitter = query<HTMLElement>('#horizontalSplitter');
 const chartToolbar = query<HTMLElement>('.chart-head');
@@ -141,7 +144,8 @@ let runningSimulation = false;
 let currentWorstCaseObjective: WorstCaseObjective | null = null;
 let currentCompatMode: string | undefined;
 let lastEngineAvailability: 'wasm' | 'missing' | null = null;
-let activeInputView: 'netlist' | 'tolerance' = 'netlist';
+let activeInputView: 'netlist' | 'mcSettings' = 'netlist';
+let mcSettingsVisited = false;
 let currentNetlistMetaLabel = '';
 let currentNetlistMetaSampleKey = '';
 
@@ -250,7 +254,6 @@ const worstCaseController = new WorstCaseController(
 		summaryTable: query<HTMLElement>('#wcSummaryTable'),
 		impactTable: query<HTMLElement>('#wcImpactTable'),
 		casesTable: query<HTMLElement>('#wcCasesTable'),
-		toleranceTable: query<HTMLElement>('#toleranceParameterTable'),
 		app: edaApp,
 	},
 	waveformController,
@@ -338,6 +341,9 @@ clearButton.addEventListener('click', () => {
 	currentCompatMode = undefined;
 	syncCompatSelect();
 	analysisModeSelect.value = 'transient';
+	mcSampleCountInput.value = '30';
+	mcSeedInput.value = '';
+	syncMcSettingsInputs();
 	clearWaveformOnly();
 	clearMonteCarloResults();
 	clearWorstCaseResults();
@@ -364,7 +370,18 @@ bottomTabs.forEach((button) => {
 	});
 });
 inputDockButton.addEventListener('click', () => activateInputPanel('netlist'));
-toleranceDockButton.addEventListener('click', () => activateInputPanel('tolerance'));
+mcSettingsDockButton.addEventListener('click', () => activateInputPanel('mcSettings'));
+// 可见输入框与 hidden 载体同步：非法输入标红不写入，合法值才落到载体供运行读取。
+mcSampleCountVisible.addEventListener('input', () => {
+	const valid = isValidMcInteger(mcSampleCountVisible.value, 1, 10000);
+	mcSampleCountVisible.setAttribute('aria-invalid', valid || !mcSampleCountVisible.value.trim() ? 'false' : 'true');
+	if (valid) mcSampleCountInput.value = mcSampleCountVisible.value;
+});
+mcSeedVisible.addEventListener('input', () => {
+	const valid = isValidMcInteger(mcSeedVisible.value, 1, 2147483646);
+	mcSeedVisible.setAttribute('aria-invalid', valid || !mcSeedVisible.value.trim() ? 'false' : 'true');
+	if (valid) mcSeedInput.value = mcSeedVisible.value;
+});
 workbench.install();
 document.addEventListener('keydown', (event) => {
 	if (event.key !== 'Escape') return;
@@ -441,6 +458,7 @@ function applyImportedRunOptions(imported: NetlistImportMessage) {
 
 	mcSampleCountInput.value = String(monteCarlo.sampleCount);
 	mcSeedInput.value = typeof monteCarlo.seed === 'number' && Number.isFinite(monteCarlo.seed) ? String(Math.trunc(monteCarlo.seed)) : '';
+	syncMcSettingsInputs();
 	appendLog(t(
 		'log.mcConfig',
 		monteCarlo.sampleCount,
@@ -690,20 +708,26 @@ function updateAnalysisControls() {
 }
 
 function updateWorstCaseInputMode() {
-	const isWorstCase = analysisUiCatalog[getAnalysisType()].showToleranceInput;
-	toleranceDockButton.classList.toggle('hidden', !isWorstCase);
-	if (!isWorstCase && activeInputView === 'tolerance') activateInputPanel('netlist', false);
-	if (isWorstCase) worstCaseController.setObjective(currentWorstCaseObjective);
+	const type = getAnalysisType();
+	const isMonteCarlo = type === 'monte-carlo';
+	mcSettingsDockButton.classList.toggle('hidden', !isMonteCarlo);
+	if (isMonteCarlo) worstCaseController.setObjective(currentWorstCaseObjective);
+	// MC 时首次自动切到设置视图，展示 EDA 带入的次数与种子。
+	if (isMonteCarlo && activeInputView === 'netlist' && !mcSettingsVisited) {
+		mcSettingsVisited = true;
+		activateInputPanel('mcSettings', false);
+	}
+	if (!isMonteCarlo && activeInputView === 'mcSettings') activateInputPanel('netlist', false);
 }
 
-function activateInputPanel(view: 'netlist' | 'tolerance', toggleCollapse = true) {
-	if (view === 'tolerance' && getAnalysisType() !== 'worst-case') return;
+function activateInputPanel(view: 'netlist' | 'mcSettings', toggleCollapse = true) {
+	if (view === 'mcSettings' && getAnalysisType() !== 'monte-carlo') return;
 	const isCurrent = activeInputView === view;
 	activeInputView = view;
 	inputDockButton.classList.toggle('active', view === 'netlist');
-	toleranceDockButton.classList.toggle('active', view === 'tolerance');
+	mcSettingsDockButton.classList.toggle('active', view === 'mcSettings');
 	netlistInputView.classList.toggle('active', view === 'netlist');
-	toleranceInputView.classList.toggle('active', view === 'tolerance');
+	mcSettingsInputView.classList.toggle('active', view === 'mcSettings');
 	if (toggleCollapse && isCurrent) workbench.toggleInputCollapsed();
 	else workbench.toggleInputCollapsed(false);
 }
@@ -729,6 +753,21 @@ function readMonteCarloSeed(): number | undefined {
 	if (!raw) return undefined;
 	const value = Number(raw);
 	return Number.isFinite(value) ? Math.trunc(value) : undefined;
+}
+
+/** hidden 载体 -> 可见输入框（EDA 赋值/清空后同步显示）。 */
+function syncMcSettingsInputs() {
+	mcSampleCountVisible.value = mcSampleCountInput.value;
+	mcSeedVisible.value = mcSeedInput.value;
+	mcSampleCountVisible.setAttribute('aria-invalid', 'false');
+	mcSeedVisible.setAttribute('aria-invalid', 'false');
+}
+
+/** MC 设置整数值校验：正整数且在范围内；空串由调用方按"留空"语义处理。 */
+function isValidMcInteger(raw: string, min: number, max: number): boolean {
+	if (!/^\d+$/.test(raw.trim())) return false;
+	const value = Number(raw);
+	return Number.isSafeInteger(value) && value >= min && value <= max;
 }
 
 function setRunning(running: boolean) {

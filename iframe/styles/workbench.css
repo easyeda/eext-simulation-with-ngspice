@@ -11,6 +11,8 @@
 	min-height: 0;
 	background: #f7f8fa;
 	z-index: 3;
+	/* 竖排 tab 栏不需要文本选择，避免空白处连点选中文字。 */
+	user-select: none;
 }
 
 /* 左侧竖排 tab（仿真网表/容差参数）：EasyEDA 垂直标签规范 —
@@ -152,6 +154,62 @@
 	font-size: 12px;
 	line-height: 18px;
 	tab-size: 2;
+}
+
+/* 蒙特卡洛设置表单：纵向排列，label 在上输入框在下。
+   输入框遵循 EasyEDA 规范：高 24px、圆角 2px、聚焦 #1890ff + 光晕。 */
+.mc-settings-form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 12px;
+	overflow: auto;
+	min-height: 0;
+}
+
+/* 属性行式布局：label 按文字自然宽度，输入框紧随其后，间距 8px（EasyEDA 标准间距）。 */
+.mc-settings-field {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: #5f6874;
+}
+
+.mc-settings-field input {
+	height: 24px;
+	padding: 0 8px;
+	border: 1px solid #d9d9d9;
+	border-radius: 2px;
+	background: var(--bg-color-input, #ffffff);
+	color: #333333;
+	font-family: "Microsoft YaHei";
+	font-size: 12px;
+	outline: none;
+	/* 数值输入框按内容定宽，不占满整行。 */
+	width: 96px;
+	box-sizing: border-box;
+}
+
+.mc-settings-field input:hover {
+	border-color: var(--border-color-hover-input, #1890ff);
+}
+
+.mc-settings-field input:focus {
+	border-color: #1890ff;
+	box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+.mc-settings-field input[aria-invalid="true"] {
+	border-color: #f5222d;
+}
+
+.mc-settings-hint {
+	margin: 0;
+	font-size: 12px;
+	line-height: 18px;
+	color: #868686;
 }
 
 .wave-panel {

@@ -50,7 +50,7 @@ export const iframeTemplate = `
           <span id="analysisTypeValue" class="analysis-type-pill">TRAN</span>
           <input id="analysisModeSelect" type="hidden" value="transient" />
           <input id="mcSampleCountInput" type="hidden" value="30" />
-          <input id="mcSeedInput" type="hidden" value="12345" />
+          <input id="mcSeedInput" type="hidden" value="" />
         </label>
         <button id="runButton" class="eda-button primary" type="button" title="使用插件内置 NGspice WASM 运行" data-i18n-title="tooltip.run">
           ${iconHtml('run')}
@@ -68,8 +68,8 @@ export const iframeTemplate = `
         <button id="inputDockButton" class="input-dock-tab active" type="button" title="收回仿真网表" data-i18n-title="tooltip.collapseNetlist" aria-expanded="true">
           <span data-i18n="dock.netlist.1">仿</span><span data-i18n="dock.netlist.2">真</span><span data-i18n="dock.netlist.3">网</span><span data-i18n="dock.netlist.4">表</span><span data-i18n="dock.netlist.5"></span><span data-i18n="dock.netlist.6"></span><span data-i18n="dock.netlist.7"></span>
         </button>
-        <button id="toleranceDockButton" class="input-dock-tab hidden" type="button" title="容差参数" data-i18n-title="tooltip.toleranceParameters" aria-expanded="true">
-          <span data-i18n="dock.tolerance.1">容</span><span data-i18n="dock.tolerance.2">差</span><span data-i18n="dock.tolerance.3">参</span><span data-i18n="dock.tolerance.4">数</span>
+        <button id="mcSettingsDockButton" class="input-dock-tab hidden" type="button" title="蒙特卡洛设置" data-i18n-title="tooltip.mcSettings" aria-expanded="true">
+          <span data-i18n="dock.mc.1">蒙</span><span data-i18n="dock.mc.2">特</span><span data-i18n="dock.mc.3">卡</span><span data-i18n="dock.mc.4">洛</span>
         </button>
       </nav>
 
@@ -86,14 +86,24 @@ export const iframeTemplate = `
           </div>
           <textarea id="netlistInput" class="netlist-editor" spellcheck="false" placeholder="等待 EDA 仿真事件导入网表，或粘贴 .tran / .ac / .dc 网表" data-i18n-placeholder="netlist.placeholder"></textarea>
         </div>
-        <div id="toleranceInputView" class="input-view">
+        <div id="mcSettingsInputView" class="input-view">
           <div class="panel-head">
             <div>
-              <h2 data-i18n="wca.toleranceTitle">器件容差参数</h2>
-              <p data-i18n="wca.toleranceDescription">本次分析使用的标称值和上下限，只读展示</p>
+              <h2 data-i18n="mc.settingsTitle">蒙特卡洛设置</h2>
+              <p data-i18n="mc.settingsDescription">EDA 事件自动带入，或手动修改后运行</p>
             </div>
           </div>
-          <div id="toleranceParameterTable" class="tolerance-parameter-table"></div>
+          <div class="mc-settings-form">
+            <label class="mc-settings-field">
+              <span data-i18n="mc.sampleCountLabel">样本次数</span>
+              <input id="mcSampleCountVisible" type="number" min="1" max="10000" step="1" inputmode="numeric" data-i18n-aria-label="mc.sampleCountLabel" aria-label="样本次数" />
+            </label>
+            <label class="mc-settings-field">
+              <span data-i18n="mc.seedLabel">随机种子</span>
+              <input id="mcSeedVisible" type="number" min="1" max="2147483646" step="1" inputmode="numeric" placeholder="空 = 每次随机" data-i18n-placeholder="mc.seedPlaceholder" data-i18n-aria-label="mc.seedLabel" aria-label="随机种子" />
+            </label>
+            <p class="mc-settings-hint" data-i18n="mc.seedHint">随机种子留空时每次运行自动生成；填写后可复现同一批随机样本。</p>
+          </div>
         </div>
       </section>
 

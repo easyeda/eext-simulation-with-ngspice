@@ -4,14 +4,13 @@ import type {
 	AnalysisTraceChoiceController,
 } from "../analysis-presentation";
 import { escapeHtml, formatNumber, normalizeMeasurementId } from "../format";
-import { formatAssignments, formatTolerance, worstCaseRunLabel } from "./format";
+import { formatAssignments, worstCaseRunLabel } from "./format";
 import { t } from "../../shared/i18n";
 import type { ProbeTarget } from "../../shared/probe";
 import { downloadTextFile } from "../download";
 import { buildWorstCaseOverlayDataset, buildWorstCaseProbeOptions, type WorstCaseProbeOption } from "../../features/worst-case/view-model";
 import { worstCaseResultToCsv } from "../../features/worst-case/report";
 import type { WorstCaseObjective, WorstCaseResult } from "../../features/worst-case/types";
-import type { VariationParameter } from "../../shared/variation";
 
 export interface WorstCaseControllerElements {
 	status: HTMLElement;
@@ -22,7 +21,6 @@ export interface WorstCaseControllerElements {
 	summaryTable: HTMLElement;
 	impactTable: HTMLElement;
 	casesTable: HTMLElement;
-	toleranceTable: HTMLElement;
 	app: HTMLElement;
 }
 
@@ -42,7 +40,6 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 	private readonly summaryTable: HTMLElement;
 	private readonly impactTable: HTMLElement;
 	private readonly casesTable: HTMLElement;
-	private readonly toleranceTable: HTMLElement;
 	private readonly app: HTMLElement;
 
 	constructor(
@@ -59,14 +56,12 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 		this.summaryTable = elements.summaryTable;
 		this.impactTable = elements.impactTable;
 		this.casesTable = elements.casesTable;
-		this.toleranceTable = elements.toleranceTable;
 		this.app = elements.app;
 		this.exportButton.addEventListener("click", () => this.exportCsv());
 	}
 
 	setObjective(objective: WorstCaseObjective | null): void {
 		this.objective = objective;
-		this.renderParameters(this.result?.parameters ?? null);
 	}
 
 	getResult(): WorstCaseResult | null {
@@ -83,7 +78,6 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 		this.renderSummary(result);
 		this.renderImpact(result);
 		this.renderCases(result);
-		this.renderParameters(result.parameters);
 		this.renderWaveforms(result);
 		this.activateSummaryPanel();
 	}
@@ -99,19 +93,14 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 		this.summaryTable.innerHTML = "";
 		this.impactTable.innerHTML = "";
 		this.casesTable.innerHTML = "";
-		this.renderParameters(null);
 	}
 
 	refreshLocale(): void {
-		if (!this.result) {
-			this.renderParameters(null);
-			return;
-		}
+		if (!this.result) return;
 		this.status.textContent = t("wca.status", this.result.completedRunCount, this.result.expectedRunCount, this.result.status);
 		this.renderSummary(this.result);
 		this.renderImpact(this.result);
 		this.renderCases(this.result);
-		this.renderParameters(this.result.parameters);
 	}
 
 	setRunning(running: boolean): void {
@@ -180,17 +169,6 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 			}).join("")}</tbody>
 		</table>`;
 		this.installRunHandlers(this.casesTable);
-	}
-
-	private renderParameters(parameters: VariationParameter[] | null): void {
-		if (!parameters?.length) {
-			this.toleranceTable.innerHTML = `<div class="mc-empty">${escapeHtml(t("wca.noParameters"))}</div>`;
-			return;
-		}
-		this.toleranceTable.innerHTML = `<table class="mc-table wc-table">
-			<thead><tr><th>${escapeHtml(t("wca.parameter"))}</th><th>${escapeHtml(t("wca.paramName"))}</th><th>${escapeHtml(t("wca.nominal"))}</th><th>${escapeHtml(t("wca.minimum"))}</th><th>${escapeHtml(t("wca.maximum"))}</th><th>${escapeHtml(t("wca.tolerance"))}</th></tr></thead>
-			<tbody>${parameters.map((parameter) => `<tr class="${parameter.enabled ? "" : "disabled"}"><td>${escapeHtml(parameter.owner?.refdes || parameter.label)}</td><td>${escapeHtml(parameter.paramName)}</td><td>${formatNumber(parameter.nominalValue)} ${escapeHtml(parameter.unit || "")}</td><td>${formatNumber(parameter.minValue)}</td><td>${formatNumber(parameter.maxValue)}</td><td>${escapeHtml(formatTolerance(parameter.tolerance))}</td></tr>`).join("")}</tbody>
-		</table>`;
 	}
 
 	private renderWaveforms(result: WorstCaseResult): void {

@@ -101,6 +101,8 @@
 	padding: 0;
 	background: #f7f8fa;
 	overflow: hidden;
+	/* tab 栏不需要文本选择，避免空白处连点选中状态文字。 */
+	user-select: none;
 }
 
 /* 底部 tab（运行日志/统计摘要/样本数据）：EasyEDA 面板标签规范 —

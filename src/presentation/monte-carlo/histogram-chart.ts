@@ -103,6 +103,9 @@ export class MonteCarloHistogramChart {
 		const maximum = bins[bins.length - 1].upper;
 		const span = maximum - minimum;
 		const axisPadding = span > 0 ? span * 0.025 : 1;
+		// 顶部留白：纵轴上限 = 峰值 × 7/6，柱区占 6/7、上方空 1/7，观感不顶格。
+		const peakValue = Math.max(...bins.map((bin) => this.yAxisMode === 'count' ? bin.count : bin.count / total * 100));
+		const yAxisMax = peakValue * 7 / 6;
 
 		this.titleElement.textContent = t('chart.distributionTitle', measurement.label);
 		this.badgesElement.innerHTML = `<span class="chart-meta">${t('chart.histogramMeta', formatInteger(total), bins.length)}</span>`;
@@ -157,6 +160,7 @@ export class MonteCarloHistogramChart {
 				type: 'value',
 				name: this.yAxisMode === 'count' ? t('chart.sampleCountAxis') : t('chart.percentAxis'),
 				min: 0,
+				max: yAxisMax,
 				minInterval: this.yAxisMode === 'count' ? 1 : undefined,
 				axisLabel: { color: '#5f6874' },
 				axisLine: { show: true, lineStyle: { color: '#87909e' } },
@@ -164,7 +168,8 @@ export class MonteCarloHistogramChart {
 			},
 			series: [{
 				type: 'bar',
-				barWidth: '88%',
+				// 柱宽收敛留出间隙，柱多时保持可辨识的分箱边界。
+				barWidth: '60%',
 				data: bins.map((bin, index) => ({
 					value: [(bin.lower + bin.upper) / 2, this.yAxisMode === 'count' ? bin.count : bin.count / total * 100],
 					itemStyle: {
