@@ -2,6 +2,7 @@ import type { AnalysisArtifact, AnalysisExecution, AnalysisRequest } from "../..
 import type { WorstCaseObjective, WorstCaseResult } from "../../features/worst-case/types";
 import type {
 	MonteCarloResult,
+	MonteCarloSampleProgress,
 } from "../../features/monte-carlo/types";
 import type { ProbeTarget } from "../../shared/probe";
 import type { AnalysisType, SpiceCommandType } from "../../shared/analysis-types";
@@ -16,6 +17,10 @@ export interface CommonRunOptions {
 export interface MonteCarloRunOptions extends CommonRunOptions {
 	sampleCount: number;
 	seed?: number;
+	/** 可选。每个样本完成时的实时回调（用于边跑边渲染）。 */
+	onSampleProgress?: (progress: MonteCarloSampleProgress) => void;
+	/** 可选。中止信号：abort 后在下一个样本前停止，返回已完成的部分结果。 */
+	signal?: AbortSignal;
 }
 
 export interface WorstCaseRunOptions extends CommonRunOptions {

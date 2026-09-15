@@ -3,7 +3,8 @@ import type {
 	WaveformTrace,
 } from '../../shared/waveform';
 import type { ProbeTarget } from '../../shared/probe';
-import type { MonteCarloResult, MonteCarloSampleResult } from './types';
+import type { MonteCarloResult } from './types';
+import type { McWaveformStore } from './waveform-store';
 
 export interface MonteCarloProbeOption {
 	id: string;
@@ -18,7 +19,14 @@ export function buildMonteCarloProbeOptions(
 	result: MonteCarloResult,
 	probeNodes: ProbeTarget[],
 ): MonteCarloProbeOption[] {
-	const dataset = firstMonteCarloSampleDataset(result);
+	return buildMonteCarloProbeOptionsFromTemplate(firstMonteCarloSampleDataset(result), probeNodes);
+}
+
+export function buildMonteCarloProbeOptionsFromTemplate(
+	template: WaveformDataset | null,
+	probeNodes: ProbeTarget[],
+): MonteCarloProbeOption[] {
+	const dataset = template;
 	if (!dataset) return [];
 	const options: MonteCarloProbeOption[] = [];
 	const used = new Set<string>();
@@ -51,63 +59,32 @@ export function buildMonteCarloProbeOptions(
 	}));
 }
 
-export function buildMonteCarloOverlayDataset(
-	result: MonteCarloResult,
+/**
+ * 由波形累积存储构建 MC 叠加的元信息（探针匹配 + 轴过滤）。
+ * 曲线本体由立即模式画布直接绘制，不走 WaveformTrace 管线。
+ */
+export function buildMonteCarloOverlayMetaFromStore(
+	store: McWaveformStore,
+	template: WaveformDataset | null,
 	options: MonteCarloProbeOption[],
 	probeId: string,
-): WaveformDataset | null {
+): { traceName: string; axisId: string; unit: string; sampleCount: number } | null {
 	const option = options.find((item) => item.id === probeId) || options[0];
-	if (!option) return null;
-	const firstDataset = firstMonteCarloSampleDataset(result);
-	if (!firstDataset) return null;
-	const traces: WaveformTrace[] = [];
-
-	for (const sample of result.samples) {
-		if (!sample.ok || !sample.datasets?.length) continue;
-		const sampleDataset = sample.datasets[0];
-		const sourceTrace = sampleDataset.traces.find((trace) => trace.id === option.traceId)
-			|| findTraceForProbe(sampleDataset, option.label)
-			|| sampleDataset.traces.find((trace) => normalizeTraceText(trace.name) === normalizeTraceText(option.traceName));
-		if (!sourceTrace) continue;
-		traces.push({
-			...sourceTrace,
-			id: `mc-${option.id}-${sample.sampleIndex}`,
-			name: `#${sample.sampleIndex}`,
-			color: sampleColor(sample.sampleIndex),
-			meta: {
-				sampleIndex: sample.sampleIndex,
-				probeKey: option.id,
-				sourceTraceId: sourceTrace.id,
-				sourceTraceName: sourceTrace.name,
-			},
-		});
-	}
-
-	if (!traces.length) return null;
+	if (!option || !template) return null;
+	const seriesList = store.getSeries(option.traceName);
+	if (!seriesList.length) return null;
 	return {
-		...firstDataset,
-		id: `mc-overlay-${option.id}`,
-		title: 'Monte Carlo',
-		traces,
-		yAxes: firstDataset.yAxes.filter((axis) => traces.some((trace) => trace.axisId === axis.id)),
-		meta: {
-			...firstDataset.meta,
-			sampleCount: traces.reduce((sum, trace) => sum + trace.points.length, 0),
-			sourcePlot: `${option.label} · ${traces.length}/${result.samples.length} samples`,
-		},
+		traceName: option.traceName,
+		axisId: option.axisId,
+		unit: option.unit,
+		sampleCount: seriesList.length,
 	};
 }
 
 function firstMonteCarloSampleDataset(result: MonteCarloResult): WaveformDataset | null {
-	for (const sample of result.samples) {
-		if (sample.ok && sample.datasets?.length) return sample.datasets[0];
-	}
 	return result.representativeDatasets[0] || null;
 }
 
-function findTraceForProbe(dataset: WaveformDataset, probe: string): WaveformTrace | null {
-	return findTraceVariantsForProbe(dataset, probe)[0] || null;
-}
 
 /** 找出探针节点对应的所有 trace(AC 下同节点会有 gain 与 phase 两条)。 */
 function findTraceVariantsForProbe(dataset: WaveformDataset, probe: string): WaveformTrace[] {
@@ -116,6 +93,21 @@ function findTraceVariantsForProbe(dataset: WaveformDataset, probe: string): Wav
 		const candidates = [...probeNameCandidates(trace.name), ...probeNameCandidates(trace.id)];
 		return candidates.some((candidate) => wanted.has(candidate));
 	});
+}
+
+/**
+ * 由模板数据集生成采集白名单：探针节点对应的 trace 名/id 精确集合。
+ * 供 waveform-store 过滤使用，匹配规则与 overlay 完全一致（含 AC gain/phase 后缀）。
+ */
+export function probeTraceNamesForProbes(dataset: WaveformDataset, probes: ProbeTarget[]): ReadonlySet<string> {
+	const names = new Set<string>();
+	for (const probe of probes) {
+		for (const trace of findTraceVariantsForProbe(dataset, probe.node)) {
+			names.add(trace.name);
+			names.add(trace.id);
+		}
+	}
+	return names;
 }
 
 function probeNameCandidates(value: string): Set<string> {
@@ -141,7 +133,3 @@ function normalizeProbeOptionId(value: string): string {
 	return normalizeTraceText(value).replace(/[^a-z0-9]+/g, '-') || 'probe';
 }
 
-function sampleColor(sampleIndex: number): string {
-	const hue = (sampleIndex * 137.508) % 360;
-	return `hsl(${hue.toFixed(1)} 72% 46%)`;
-}

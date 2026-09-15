@@ -42,6 +42,12 @@ export interface WaveformDataset {
     sampleCount: number;
     generatedAt: number;
     sourcePlot?: string;
+    /** 可选。MC scaffold 携带的全量波形存储（顶部导出用），不在普通 JSON 序列化路径。 */
+    waveformStore?: unknown;
+    /** 可选。MC scaffold 对应的探针 trace 名。 */
+    probeTraceName?: string;
+    /** 可选。当前高亮的样本号（跟随读数/交点圆点聚焦该样本）。 */
+    highlightSampleIndex?: number;
   };
 }
 

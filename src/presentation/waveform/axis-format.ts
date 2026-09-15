@@ -140,7 +140,6 @@ export function escapeHtml(value: string): string {
 
 function formatAxisValue(value: number, unit: string): string {
 	if (!Number.isFinite(value)) return "";
-	const abs = Math.abs(value);
 	if (unit === "Hz") return scaleUnit(value, [["GHz", 1e9], ["MHz", 1e6], ["kHz", 1e3], ["Hz", 1]]);
 	if (unit === "s") return scaleUnit(value, [["s", 1], ["ms", 1e-3], ["us", 1e-6], ["ns", 1e-9], ["ps", 1e-12]]);
 	if (unit === "V") return scaleUnit(value, [["kV", 1e3], ["V", 1], ["mV", 1e-3], ["uV", 1e-6]]);

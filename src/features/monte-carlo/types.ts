@@ -1,6 +1,6 @@
 import type { WaveformDataset } from "../../shared/waveform";
+import type { McWaveformStore } from "./waveform-store";
 
-export type MonteCarloWaveformCaptureMode = "none" | "first" | "all";
 export type MonteCarloMeasurementSource = "parameter" | "output";
 
 export interface MonteCarloSpecLimit {
@@ -32,9 +32,16 @@ export interface MonteCarloSampleResult {
 	sampleIndex: number;
 	ok: boolean;
 	measurements: MonteCarloMeasurement[];
-	datasets?: WaveformDataset[];
 	error?: string;
 	logs?: string[];
+}
+
+/** MC 单样本完成时的实时进度（store 为累积引用，随样本增加持续增长）。 */
+export interface MonteCarloSampleProgress {
+	completed: number;
+	total: number;
+	store: McWaveformStore;
+	template: WaveformDataset | null;
 }
 
 export interface MonteCarloSummary {
@@ -59,8 +66,9 @@ export interface MonteCarloResult {
 	summaries: MonteCarloSummary[];
 	measurementConfigs: MonteCarloMeasurementConfig[];
 	representativeDatasets: WaveformDataset[];
+	/** 全量波形累积存储（共享时间轴 + Float32 + 预算抽稀），立即模式叠加画布的数据源。 */
+	waveformStore?: McWaveformStore;
 	logs: string[];
-	waveformSampleLimit?: number;
 }
 
 export interface MonteCarloResponse {

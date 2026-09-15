@@ -6,19 +6,26 @@ import type { SpiceEngine, SpiceMeasurement } from "../../core/simulation/spice-
 import { trimLogs } from "../../shared/logs";
 import type { ProbeTarget } from "../../shared/probe";
 import type { WaveformDataset } from "../../shared/waveform";
+import { probeTraceNamesForProbes } from "./view-model";
 import { buildMonteCarloSummaries } from "./stats";
 import type {
 	MonteCarloMeasurement,
 	MonteCarloMeasurementConfig,
 	MonteCarloResponse,
+	MonteCarloSampleProgress,
 	MonteCarloSampleResult,
 } from "./types";
+import { McWaveformStore } from "./waveform-store";
 
 export interface RunMonteCarloOptions {
 	sampleCount: number;
 	seed?: number;
 	probeNodes?: ProbeTarget[];
 	compatMode?: string;
+	/** 可选。每个样本完成后回调（实时渲染入口），store 为累积引用。 */
+	onSampleProgress?: (progress: MonteCarloSampleProgress) => void;
+	/** 可选。中止信号：abort 后在下一个样本前停止，已完成样本照常返回。 */
+	signal?: AbortSignal;
 }
 
 interface DecodedMonteCarloSample {
@@ -27,7 +34,6 @@ interface DecodedMonteCarloSample {
 	errors: string[];
 }
 
-const MAX_WAVEFORM_SAMPLES = 200;
 const MAX_NGSPICE_SEED = 2_147_483_646;
 
 export async function runMonteCarloAnalysis(
@@ -56,15 +62,22 @@ export async function runMonteCarloAnalysis(
 
 		const samples: MonteCarloSampleResult[] = [];
 		const representativeDatasets: WaveformDataset[] = [];
+		const waveformStore = new McWaveformStore();
+		let captureFilter: ReadonlySet<string> | null = null;
+		const pendingProbeNodes = options.probeNodes?.length ? options.probeNodes : null;
 		let measurementConfigs: MonteCarloMeasurementConfig[] = [];
 		let expectedMeasurementIds: string[] | null = null;
+		let lastTrimCount = 0;
 
 		for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
+			if (options.signal?.aborted) {
+				logs.push(`Monte Carlo stopped manually after ${samples.length} samples`);
+				break;
+			}
 			try {
-				const captureWaveforms = sampleIndex <= MAX_WAVEFORM_SAMPLES;
 				const run = await session.run({
 					beforeRun: [{ kind: "resample-source" }],
-					captureWaveforms,
+					captureWaveforms: true,
 				});
 				if (!run.ok) {
 					samples.push({
@@ -110,11 +123,18 @@ export async function runMonteCarloAnalysis(
 					productAnalysisType: "monte-carlo" as const,
 				}));
 				if (!representativeDatasets.length && datasets.length) representativeDatasets.push(...datasets);
+				if (datasets.length) {
+					if (pendingProbeNodes && captureFilter === null) {
+						const whitelist = probeTraceNamesForProbes(datasets[0], pendingProbeNodes);
+						// 白名单为空说明探针与 trace 名不匹配，退回全量采集以免波形丢失。
+						captureFilter = whitelist.size ? whitelist : null;
+					}
+					waveformStore.addSample(sampleIndex, datasets[0], captureFilter);
+				}
 				samples.push({
 					sampleIndex,
 					ok: true,
 					measurements: decoded.measurements,
-					...(datasets.length ? { datasets } : {}),
 					...(run.logs.length ? { logs: trimLogs(run.logs) } : {}),
 				});
 			}
@@ -127,6 +147,26 @@ export async function runMonteCarloAnalysis(
 					error: message,
 					logs: trimLogs([message]),
 				});
+			}
+			finally {
+				// 内存预算触发抽稀时记录日志。
+				const trimCount = waveformStore.getTrimCount();
+				if (trimCount > lastTrimCount) {
+					lastTrimCount = trimCount;
+					logs.push(`MC waveform memory budget exceeded; all samples decimated x2 (${trimCount} times, stride=${waveformStore.getStride()}, ~${Math.round(waveformStore.approxBytes() / 1048576)}MB)`);
+				}
+				// 实时渲染入口：每个样本结束（无论成败）都上报一次累积进度。
+				if (options.onSampleProgress) {
+					options.onSampleProgress({
+						completed: sampleIndex,
+						total: sampleCount,
+						store: waveformStore,
+						template: waveformStore.getTemplate(),
+					});
+					// 让出事件循环：await 延续在微任务队列，整圈循环会挤成一个宏任务，
+					// rAF 没机会执行（表现为跑完才一次性出图）。MessageChannel 无 4ms 钳制。
+					await yieldToEventLoop();
+				}
 			}
 		}
 
@@ -142,8 +182,8 @@ export async function runMonteCarloAnalysis(
 			summaries,
 			measurementConfigs,
 			representativeDatasets,
+			waveformStore,
 			logs: trimLogs(logs),
-			waveformSampleLimit: MAX_WAVEFORM_SAMPLES,
 		};
 		if (!successCount) {
 			return { ok: false, result, logs: trimLogs(logs), error: "All Monte Carlo samples failed" };
@@ -261,6 +301,30 @@ function decodeMonteCarloSample(measurements: SpiceMeasurement[]): DecodedMonteC
 
 function generateSeed(): number {
 	return Math.floor(Math.random() * MAX_NGSPICE_SEED) + 1;
+}
+
+/**
+ * 让出事件循环（排到宏任务队列末尾），使浏览器有机会在样本之间执行
+ * rAF/绘制。优先用 MessageChannel（无 setTimeout 嵌套 4ms 钳制）。
+ */
+function yieldToEventLoop(): Promise<void> {
+	const channelCtor = (globalThis as {
+		MessageChannel?: new () => {
+			port1: { onmessage: (() => void) | null; close(): void };
+			port2: { postMessage(value: number): void };
+		};
+	}).MessageChannel;
+	if (channelCtor) {
+		return new Promise((resolve) => {
+			const channel = new channelCtor();
+			channel.port1.onmessage = () => {
+				channel.port1.close();
+				resolve();
+			};
+			channel.port2.postMessage(0);
+		});
+	}
+	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function sameStringArray(left: string[], right: string[]): boolean {

@@ -6,13 +6,17 @@ import type {
 import { escapeHtml, formatInteger, formatNumber, measurementLabelWithUnit, normalizeMeasurementId, prettyMeasurementId } from "../format";
 import { t } from "../../shared/i18n";
 import type { ProbeTarget } from "../../shared/probe";
-import type { MonteCarloMeasurementConfig, MonteCarloResult, MonteCarloSampleResult, MonteCarloSummary } from "../../features/monte-carlo/types";
+import type { WaveformDataset, WaveformTrace } from "../../shared/waveform";
+import type { McWaveformStore } from "../../features/monte-carlo/waveform-store";
+import type { MonteCarloMeasurementConfig, MonteCarloResult, MonteCarloSampleProgress, MonteCarloSampleResult, MonteCarloSummary } from "../../features/monte-carlo/types";
 import { downloadTextFile } from "../download";
 import { buildHistogramMeasurements, type HistogramMeasurement } from "../../features/monte-carlo/histogram";
 import { MonteCarloHistogramChart, type HistogramYAxisMode } from "./histogram-chart";
+import { McOverlayCanvas } from "./overlay-canvas";
 import {
-	buildMonteCarloOverlayDataset,
 	buildMonteCarloProbeOptions,
+	buildMonteCarloProbeOptionsFromTemplate,
+	buildMonteCarloOverlayMetaFromStore,
 	type MonteCarloProbeOption,
 } from "../../features/monte-carlo/view-model";
 import {
@@ -53,6 +57,14 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 	private histogramMeasurements: HistogramMeasurement[] = [];
 	private activeHistogramMeasurementId = "";
 	private running = false;
+	private overlayCanvas: McOverlayCanvas | null = null;
+	private detachAfterRender: (() => void) | null = null;
+	private streamStore: McWaveformStore | null = null;
+	private streamTemplate: WaveformDataset | null = null;
+	private scaffoldDataset: WaveformDataset | null = null;
+	private streamTotal = 0;
+	private streamQueued = false;
+	private streamNextRenderAt = 0;
 
 	private readonly app: HTMLElement;
 	private readonly status: HTMLElement;
@@ -80,7 +92,6 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		private readonly histogramChart: MonteCarloHistogramChart,
 		private readonly probeNodes: () => ProbeTarget[],
 		private readonly activateBottomPanel: (panel: "log" | "mcSummary" | "mcSamples", expand?: boolean) => void,
-		private readonly waveformSampleLimit: number,
 	) {
 		this.app = elements.app;
 		this.status = elements.status;
@@ -149,6 +160,16 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		this.highlightedSampleIndex = null;
 		this.histogramMeasurements = [];
 		this.activeHistogramMeasurementId = "";
+		this.streamStore = null;
+		this.streamTemplate = null;
+		this.streamTotal = 0;
+		this.streamQueued = false;
+		this.streamNextRenderAt = 0;
+		this.scaffoldDataset = null;
+		this.detachAfterRender?.();
+		this.detachAfterRender = null;
+		this.overlayCanvas?.detach();
+		this.overlayCanvas = null;
 		this.measurementSelect.innerHTML = "";
 		this.histogramChart.setMeasurement(null);
 		this.viewTabs.classList.add("hidden");
@@ -269,11 +290,8 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		}
 		const measurementIds = collectSampleMeasurementIds(samples);
 		const configsById = new Map(this.measurementConfigs.map((config) => [normalizeMeasurementId(config.id), config]));
-		const visibleSamples = samples.slice(0, 300);
-		const hiddenCount = samples.length - visibleSamples.length;
-		this.sampleTable.innerHTML = `${hiddenCount > 0 ? `<div class="mc-note">${escapeHtml(t("table.sampleLimitNote", visibleSamples.length, samples.length))}</div>` : ""}
-		<table class="mc-table"><thead><tr><th>#</th><th>${escapeHtml(t("table.status"))}</th>${measurementIds.map((id) => `<th>${escapeHtml(measurementLabelWithUnit(prettyMeasurementId(id), configsById.get(normalizeMeasurementId(id))?.unit))}</th>`).join("")}<th>${escapeHtml(t("table.error"))}</th></tr></thead>
-		<tbody>${visibleSamples.map((sample) => {
+		this.sampleTable.innerHTML = `<table class="mc-table"><thead><tr><th>#</th><th>${escapeHtml(t("table.status"))}</th>${measurementIds.map((id) => `<th>${escapeHtml(measurementLabelWithUnit(prettyMeasurementId(id), configsById.get(normalizeMeasurementId(id))?.unit))}</th>`).join("")}<th>${escapeHtml(t("table.error"))}</th></tr></thead>
+		<tbody>${samples.map((sample) => {
 			const values = new Map(sample.measurements.map((measurement) => [measurement.id, measurement.value]));
 			return `<tr class="mc-sample-row ${sample.ok ? "" : "failed"} ${sample.sampleIndex === this.highlightedSampleIndex ? "active" : ""}" data-sample-index="${sample.sampleIndex}"><td>${sample.sampleIndex}</td><td>${sample.ok ? "OK" : escapeHtml(t("table.failed"))}</td>${measurementIds.map((id) => `<td>${values.has(id) ? formatNumber(values.get(id) as number) : "-"}</td>`).join("")}<td title="${escapeHtml(sample.error || "")}">${escapeHtml(sample.error || "")}</td></tr>`;
 		}).join("")}</tbody></table>`;
@@ -286,37 +304,164 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 	}
 
 	private renderWaveforms(result: MonteCarloResult): void {
+		this.streamStore = null;
+		this.streamTemplate = null;
 		this.probeOptions = buildMonteCarloProbeOptions(result, this.probeNodes());
 		if (!this.probeOptions.length) {
-			this.host.setDataset(null);
 			this.host.appendLog(t("log.noOverlayProbe"));
 			return;
 		}
 		this.activeProbeId = this.probeOptions.some((option) => option.id === this.activeProbeId) ? this.activeProbeId : this.probeOptions[0].id;
-		const dataset = buildMonteCarloOverlayDataset(result, this.probeOptions, this.activeProbeId);
-		if (!dataset) {
-			this.host.setDataset(null);
+		const store = result.waveformStore;
+		const template = result.representativeDatasets[0] || null;
+		const meta = store ? buildMonteCarloOverlayMetaFromStore(store, template, this.probeOptions, this.activeProbeId) : null;
+		if (!store || !meta) {
 			this.host.appendLog(t("log.noCurrentProbeWaveform"));
 			return;
 		}
-		this.host.setDataset(dataset);
+		this.ensureOverlayCanvas();
+		// scaffold：隐形极值线（全部样本的全局 min/max）只用于撑出覆盖全部数据的轴范围，
+		// ECharts 不绘制它（name 以 "__" 开头的 trace 会被隐藏）；波形本体全部在画布层。
+		const scaffold = this.buildScaffoldDataset(template, meta);
+		if (!scaffold) return;
+		this.scaffoldDataset = scaffold;
+		this.host.setDataset(scaffold, { keepView: true });
+		this.overlayCanvas!.clear();
+		for (const series of store.getSeries(meta.traceName)) {
+			this.overlayCanvas!.addSample({
+				sampleIndex: series.sampleIndex,
+				time: series.time,
+				values: series.values,
+				color: sampleColorFor(series.sampleIndex),
+			});
+		}
+		this.overlayCanvas!.setHighlightedSample(null);
 		this.highlightedSampleIndex = null;
-		this.host.setHighlightedTraceIds(null);
-		this.syncSampleHighlight();
-		this.host.appendLog(t("log.mcOverlayComplete", this.selectedProbeLabel(), dataset.traces.length));
+		this.host.appendLog(t("log.mcOverlayComplete", this.selectedProbeLabel(), store.getSampleCount()));
+	}
+
+	/**
+	 * scaffold 数据集：隐形极值线。跨全部样本求全局 min/max，各用两个点表达，
+	 * name 以 "__" 开头 → 图例/曲线列表隐藏，唯一作用是把轴范围撑到覆盖所有数据。
+	 */
+	private buildScaffoldDataset(
+		template: WaveformDataset | null,
+		meta: { traceName: string; axisId: string; unit: string; sampleCount: number },
+	): WaveformDataset | null {
+		if (!template) return null;
+		const store = this.streamStore ?? this.result?.waveformStore;
+		if (!store) return null;
+		const yAxis = template.yAxes[0];
+		const axisId = yAxis?.id || "y1";
+		let gMin = Number.POSITIVE_INFINITY;
+		let gMax = Number.NEGATIVE_INFINITY;
+		for (const series of store.getSeries(meta.traceName)) {
+			for (const value of series.values) {
+				if (!Number.isFinite(value)) continue;
+				if (value < gMin) gMin = value;
+				if (value > gMax) gMax = value;
+			}
+		}
+		if (!Number.isFinite(gMin) || !Number.isFinite(gMax)) return null;
+		const first = store.getSeries(meta.traceName)[0];
+		const t0 = first?.time[0] ?? 0;
+		const t1 = first?.time[Math.max(0, first.time.length - 1)] ?? 1;
+		// 全透明色：参与 ECharts 轴布局（撑出覆盖全部数据的范围）但不可见。
+		const traces: WaveformTrace[] = [
+			{ id: "__mc_bound_min__", name: "__min__", axisId, unit: meta.unit, points: [[t0, gMin], [t1, gMin]], color: "rgba(0,0,0,0)" },
+			{ id: "__mc_bound_max__", name: "__max__", axisId, unit: meta.unit, points: [[t0, gMax], [t1, gMax]], color: "rgba(0,0,0,0)" },
+		];
+		return {
+			...template,
+			id: "mc-scaffold",
+			title: "Monte Carlo",
+			traces,
+			yAxes: template.yAxes,
+			meta: {
+				...template.meta,
+				sourcePlot: `${meta.traceName} · ${meta.sampleCount} samples`,
+				// 图表数据自带全量波形（顶部导出用），分区解耦：不跨模块取数。
+				waveformStore: store,
+				probeTraceName: meta.traceName,
+			} as typeof template.meta,
+		};
+	}
+
+	/** 确保立即模式画布挂在 ECharts 绘图区内，并在每次渲染后对齐几何。 */
+	private ensureOverlayCanvas(): void {
+		if (this.overlayCanvas) return;
+		const container = this.waveformElement;
+		if (!container) return;
+		container.style.position = "relative";
+		const canvas = new McOverlayCanvas();
+		canvas.attach(container);
+		this.overlayCanvas = canvas;
+		// 每次图表渲染（含缩放/平移/resize/显示模式切换）后同步几何与显示模式并整体重绘。
+		this.detachAfterRender = this.host.onChartAfterRender?.(() => {
+			this.overlayCanvas?.setGeometry(this.host.getPlotGeometry?.() ?? null);
+			this.overlayCanvas?.setDisplayMode(this.host.getDisplayMode?.() ?? "line");
+		}) ?? null;
+		this.overlayCanvas.setGeometry(this.host.getPlotGeometry?.() ?? null);
+		this.overlayCanvas.setDisplayMode(this.host.getDisplayMode?.() ?? "line");
+	}
+
+	/** MC 运行中的实时渲染入口：由 runner 每样本回调，几何节流 + rAF 合帧。 */
+	onSampleProgress(progress: MonteCarloSampleProgress): void {
+		this.streamStore = progress.store;
+		this.streamTemplate = progress.template;
+		this.streamTotal = progress.total;
+		const completed = progress.completed;
+		if (completed < this.streamTotal && completed < this.streamNextRenderAt) return;
+		if (this.streamQueued) return;
+		this.streamQueued = true;
+		requestAnimationFrame(() => {
+			this.streamQueued = false;
+			this.renderStreamingOverlay();
+		});
+	}
+
+	private renderStreamingOverlay(): void {
+		const store = this.streamStore;
+		if (!store) return;
+		if (!this.probeOptions.length) {
+			this.probeOptions = buildMonteCarloProbeOptionsFromTemplate(this.streamTemplate, this.probeNodes());
+			if (!this.probeOptions.length) return;
+		}
+		this.activeProbeId = this.probeOptions.some((option) => option.id === this.activeProbeId) ? this.activeProbeId : this.probeOptions[0].id;
+		const template = this.streamTemplate;
+		const meta = buildMonteCarloOverlayMetaFromStore(store, template, this.probeOptions, this.activeProbeId);
+		if (!meta) return;
+		this.ensureOverlayCanvas();
+		// 首个样本：放一条样本线给 ECharts 建立轴范围，画布才有几何可对齐。
+		if (this.overlayCanvas!.getSampleCount() === 0) {
+			const first = store.getSeries(meta.traceName)[0];
+			if (first) {
+				const points: Array<[number, number]> = [];
+				const count = Math.min(first.time.length, first.values.length);
+				for (let index = 0; index < count; index += 1) points.push([first.time[index], first.values[index]]);
+				const streamScaffold = this.buildScaffoldDataset(template, { ...meta, sampleCount: 1 });
+				this.scaffoldDataset = streamScaffold;
+				this.host.setDataset(streamScaffold);
+			}
+		}
+		// 立即模式：只把“尚未画过”的样本画上去（增量，单条 O(1)）。
+		const existing = this.overlayCanvas!.getSampleCount();
+		for (const series of store.getSeries(meta.traceName).slice(existing)) {
+			this.overlayCanvas!.addSample({
+				sampleIndex: series.sampleIndex,
+				time: series.time,
+				values: series.values,
+				color: sampleColorFor(series.sampleIndex),
+			});
+		}
+		this.status.textContent = t("mc.streaming", store.getSampleCount(), this.streamTotal);
 	}
 
 	private highlightSample(sampleIndex: number): void {
-		const dataset = this.host.getDataset();
-		if (!dataset) return;
 		this.highlightedSampleIndex = this.highlightedSampleIndex === sampleIndex ? null : sampleIndex;
-		const ids = this.highlightedSampleIndex === null
-			? []
-			: dataset.traces.filter((trace) => trace.meta?.sampleIndex === this.highlightedSampleIndex).map((trace) => trace.id);
-		if (this.highlightedSampleIndex !== null && !ids.length) {
-			this.host.appendLog(t("log.sampleNotCaptured", sampleIndex, this.result?.waveformSampleLimit || this.waveformSampleLimit));
-		}
-		this.host.setHighlightedTraceIds(this.highlightedSampleIndex === null ? null : ids);
+		// 写入 scaffold meta：图表的跟随读数/交点圆点据此聚焦该样本（mousemove 时实时读取）。
+		if (this.scaffoldDataset) this.scaffoldDataset.meta.highlightSampleIndex = this.highlightedSampleIndex ?? undefined;
+		this.overlayCanvas?.setHighlightedSample(this.highlightedSampleIndex);
 		this.syncSampleHighlight();
 		this.activateView("waveform");
 	}
@@ -327,7 +472,8 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		});
 	}
 
-	private exportCsv(): void {
+	/** 导出全部 MC 数据：测量 CSV + 全量波形 CSV（供图表头按钮在 MC 模式下转接）。 */
+	exportCsv(): void {
 		if (!this.result) {
 			this.host.appendLog(t("log.noMcExport"));
 			return;
@@ -339,4 +485,11 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		);
 		this.host.appendLog(t("log.mcExported", this.result.samples.length));
 	}
+
+}
+
+
+function sampleColorFor(sampleIndex: number): string {
+	const hue = (sampleIndex * 137.508) % 360;
+	return `hsl(${hue.toFixed(1)} 72% 46%)`;
 }

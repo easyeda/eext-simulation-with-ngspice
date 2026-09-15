@@ -14,7 +14,6 @@ import {
 	makeAxisLabelFormatter,
 	readableAxisRange,
 	formatWaveformValue,
-	type AxisScale,
 } from "./axis-format";
 import {
 	downsamplePreserveExtremes,
@@ -86,6 +85,24 @@ export function traceColorAt(index: number): string {
   return TRACE_PALETTE[Math.max(0, index) % TRACE_PALETTE.length];
 }
 
+/** 在共享时间向量上线性插值取值；超出范围钳到端点。 */
+function mcInterpolateAt(time: Float64Array, values: Float32Array, x: number): number {
+  const count = Math.min(time.length, values.length);
+  if (!count) return Number.NaN;
+  if (x <= time[0]) return values[0];
+  if (x >= time[count - 1]) return values[count - 1];
+  let lo = 0;
+  let hi = count - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (time[mid] <= x) lo = mid;
+    else hi = mid;
+  }
+  const span = time[hi] - time[lo];
+  const fraction = span > 0 ? (x - time[lo]) / span : 0;
+  return values[lo] + (values[hi] - values[lo]) * fraction;
+}
+
 /** 波形图的 ECharts 展示适配器。 */
 export class WaveformChart {
   private chart: ECharts;
@@ -119,6 +136,8 @@ export class WaveformChart {
   private renderedPointsCache = new Map<string, Array<[number, number]>>();
   private legendHiddenTraceIds = new Set<string>();
   private panState: PanState | null = null;
+  /** 每次渲染完成后通知的回调（叠加层取绘图区几何并重绘）。 */
+  private readonly renderCallbacks = { onViewChange: new Set<() => void>() };
   private view: ViewState = {
     xMin: 0,
     xMax: 1,
@@ -160,7 +179,7 @@ export class WaveformChart {
     this.renderEmpty();
   }
 
-  setDataset(dataset: WaveformDataset | null) {
+  setDataset(dataset: WaveformDataset | null, opts?: { keepView?: boolean }) {
     const previousDatasetId = this.dataset?.id ?? null;
     this.dataset = dataset;
     this.datasetXBounds = null;
@@ -173,6 +192,11 @@ export class WaveformChart {
       return;
     }
     this.legendHiddenTraceIds = new Set([...this.legendHiddenTraceIds].filter((id) => dataset.traces.some((trace) => trace.id === id)));
+    // keepView：同一数据集的渐进更新（如 MC 实时叠加）保留用户当前视图，不重新适配。
+    if (opts?.keepView && dataset.id === previousDatasetId) {
+      this.render();
+      return;
+    }
     this.fit();
   }
 
@@ -212,6 +236,8 @@ export class WaveformChart {
     this.chart.resize();
     this.restoreCursorAfterRender();
     this.scheduleFollowOverlay();
+    // resize 时 ECharts 自行重绘，不走 render()——同样通知叠加画布同步几何。
+    this.renderCallbacks.onViewChange.forEach((callback) => callback());
   }
 
   refreshLocale() {
@@ -230,6 +256,11 @@ export class WaveformChart {
 
   getDisplayLabel(): string {
     return t(displayLabelKeys[this.displayMode]);
+  }
+
+  /** 当前显示模式（叠加画布同步用）。 */
+  getDisplayMode(): DisplayMode {
+    return this.displayMode;
   }
 
   cycleCursorMode(): string {
@@ -298,10 +329,40 @@ export class WaveformChart {
     if (!this.dataset) return;
     try {
       this.renderChart();
+      // 绘图区几何/视图变化后通知叠加层（如 MC 立即模式画布）。
+      this.renderCallbacks.onViewChange.forEach((callback) => callback());
     }
     catch (error) {
       this.renderRenderError(error);
     }
+  }
+
+  /** 注册渲染后回调（叠加层用：获取绘图区几何并整体重绘）。返回取消函数。 */
+  onAfterRender(callback: () => void): () => void {
+    this.renderCallbacks.onViewChange.add(callback);
+    return () => this.renderCallbacks.onViewChange.delete(callback);
+  }
+
+  /** 当前绘图区像素矩形 + 数据范围（供叠加层对齐 ECharts 坐标）。 */
+  getPlotGeometry() {
+    if (!this.dataset) return null;
+    const bounds = this.plotBounds();
+    const xAxis = this.dataset.xAxis;
+    const yAxis = this.getRenderableAxes()[0];
+    const yRange = yAxis ? this.view.y.get(yAxis.id) : null;
+    if (!yRange) return null;
+    return {
+      left: bounds.left,
+      right: bounds.right,
+      top: bounds.top,
+      bottom: bounds.bottom,
+      xMin: this.view.xMin,
+      xMax: this.view.xMax,
+      xLog: xAxis.scale === "log",
+      yMin: yRange.min,
+      yMax: yRange.max,
+      yLog: yAxis.scale === "log",
+    };
   }
 
   private renderChart() {
@@ -314,12 +375,17 @@ export class WaveformChart {
     const visibleColors = visibleTraces.map((trace, index) => this.colorForTrace(trace, index));
 
     this.titleEl.textContent = dataset.title;
-    this.badgesEl.innerHTML = `<span class="chart-meta">${[
-      labelForAnalysis(dataset.spiceCommandType),
-      dataset.command ? escapeHtml(dataset.command) : "",
-      t("chart.traceCount", visibleTraces.length, dataset.traces.length),
-      t("chart.pointCount", formatInteger(visibleTraces.reduce((sum, trace) => sum + trace.points.length, 0))),
-    ].filter(Boolean).join(" · ")}</span>`;
+    // MC scaffold：ECharts 只承载隐形极值线，分析类型/命令/曲线数徽标无意义，仅显示样本概况。
+    const isMcScaffold = dataset.id === "mc-scaffold";
+    const badgeItems = isMcScaffold
+      ? [dataset.meta.sourcePlot ? escapeHtml(dataset.meta.sourcePlot) : "Monte Carlo"]
+      : [
+        labelForAnalysis(dataset.spiceCommandType),
+        dataset.command ? escapeHtml(dataset.command) : "",
+        t("chart.traceCount", visibleTraces.filter((trace) => !trace.name.startsWith("__")).length, dataset.traces.filter((trace) => !trace.name.startsWith("__")).length),
+        t("chart.pointCount", formatInteger(visibleTraces.reduce((sum, trace) => sum + trace.points.length, 0))),
+      ];
+    this.badgesEl.innerHTML = `<span class="chart-meta">${badgeItems.filter(Boolean).join(" · ")}</span>`;
     this.el.title = this.cursorMode === "follow"
       ? t("chart.followHelp")
       : t("chart.cursorHelp");
@@ -344,14 +410,16 @@ export class WaveformChart {
           type: "none",
           snap: false,
         },
-        formatter: (params) => this.formatTooltip(Array.isArray(params) ? params : [params]),
+        formatter: (params) => this.isMonteCarloDataset()
+          ? this.formatMcStatsTooltip()
+          : this.formatTooltip(Array.isArray(params) ? params : [params]),
       },
       legend: {
         top: 0,
         type: "scroll",
         itemWidth: 20,
         itemHeight: 12,
-        data: visibleTraces.map((trace) => ({ name: trace.name, icon: TRACE_LEGEND_ICON })),
+        data: visibleTraces.filter((trace) => !trace.name.startsWith("__")).map((trace) => ({ name: trace.name, icon: TRACE_LEGEND_ICON })),
         selected: Object.fromEntries(visibleTraces.map((trace) => [trace.name, !this.legendHiddenTraceIds.has(trace.id)])),
         textStyle: { fontSize: 12, color: "#333" },
       },
@@ -574,6 +642,62 @@ export class WaveformChart {
     };
   }
 
+  /** MC：x 处全部样本插值值的 min/P50/max（画布圆点与统计 tooltip 同源）。 */
+  private mcStatsAt(x: number): { min: number; p50: number; max: number } | null {
+    const dataset = this.dataset;
+    if (!dataset) return null;
+    const store = dataset.meta.waveformStore as {
+      getSeries(traceName: string): Array<{ time: Float64Array; values: Float32Array }>;
+    } | undefined;
+    const traceName = dataset.meta.probeTraceName as string | undefined;
+    if (!store || !traceName) return null;
+    const seriesList = store.getSeries(traceName);
+    if (!seriesList.length) return null;
+    const gathered: number[] = [];
+    for (const series of seriesList) {
+      const value = mcInterpolateAt(series.time, series.values, x);
+      if (Number.isFinite(value)) gathered.push(value);
+    }
+    if (!gathered.length) return null;
+    gathered.sort((a, b) => a - b);
+    return {
+      min: gathered[0],
+      p50: gathered[Math.floor((gathered.length - 1) / 2)],
+      max: gathered[gathered.length - 1],
+    };
+  }
+
+  /** MC 跟随读数 */
+  private formatMcStatsTooltip(): string {
+    const dataset = this.dataset;
+    if (!dataset) return "";
+    const mouseX = this.hoverX;
+    if (mouseX === null || !Number.isFinite(mouseX)) return "";
+    // 与竖线一致：点/线点模式吸附到最近采样时刻，线模式跟随鼠标。
+    const mouseXsnapped = this.displayMode !== "line" ? this.snapXToSamples(mouseX) : mouseX;
+    const unit = dataset.yAxes[0]?.unit ?? "";
+    const fmt = (value: number) => formatInspectionValue(value, unit, this.view.xMin, this.view.xMax);
+    const xLabel = `${escapeHtml(dataset.xAxis.name)}: ${formatInspectionValue(mouseXsnapped, dataset.xAxis.unit, this.view.xMin, this.view.xMax)}`;
+    // 有高亮样本：单行显示该样本在当前时刻的插值值（颜色与样本线一致）。
+    const highlightIndex = dataset.meta.highlightSampleIndex;
+    if (highlightIndex !== undefined && highlightIndex !== null) {
+      const store = dataset.meta.waveformStore as {
+        getSeries(traceName: string): Array<{ sampleIndex: number; time: Float64Array; values: Float32Array }>;
+      } | undefined;
+      const traceName = dataset.meta.probeTraceName as string | undefined;
+      const series = traceName ? store?.getSeries(traceName).find((item) => item.sampleIndex === highlightIndex) : undefined;
+      if (!series) return "";
+      const value = mcInterpolateAt(series.time, series.values, mouseXsnapped);
+      const hue = (highlightIndex * 137.508) % 360;
+      const marker = `<span style="display:inline-block;width:10px;height:2px;vertical-align:middle;background:hsl(${hue.toFixed(1)} 72% 46%);margin-right:4px"></span>`;
+      return `<div class="chart-tip"><b>${xLabel}</b><br/>${marker}#${highlightIndex}: ${fmt(value)}</div>`;
+    }
+    const stats = this.mcStatsAt(mouseXsnapped);
+    if (!stats) return "";
+    return `<div class="chart-tip"><b>${xLabel}</b><br/>`
+      + `min: ${fmt(stats.min)}<br/>P50: ${fmt(stats.p50)}<br/>max: ${fmt(stats.max)}</div>`;
+  }
+
   private formatTooltip(_params: Array<Record<string, any>>): string {
     if (!this.dataset) return "";
     // 数值与覆盖层同源：都从 hoverX 出发，不用 ECharts 的 snap axisValue。
@@ -709,6 +833,11 @@ export class WaveformChart {
     return (value: number) => p1 + (toDomain(value) - d1) * scale;
   }
 
+  /** MC 叠加数据集曲线过多：禁用逐线数值显示（tooltip/圆点/标签），只保留跟随竖线。 */
+  private isMonteCarloDataset(): boolean {
+    return this.dataset?.productAnalysisType === "monte-carlo";
+  }
+
   private renderFollowOverlay(): void {
     if (this.cursorMode !== "follow" || !this.dataset || this.hoverPixelX === null) {
       this.clearFollowOverlay();
@@ -741,6 +870,70 @@ export class WaveformChart {
       shape: { x1: linePixelX, y1: bounds.top, x2: linePixelX, y2: bounds.bottom },
       style: { stroke: "rgba(0,0,0,0.24)", lineWidth: 1, lineDash: [5, 4] },
     }];
+    if (this.isMonteCarloDataset()) {
+      // MC 叠加图：竖线 + 该时刻 min/P50/max 三个交点圆点（与统计 tooltip 同源）。
+      const mcStats = this.mcStatsAt(lineX);
+      const mcYAxes = this.getRenderableAxes();
+      const mcYRange = mcYAxes[0] ? this.view.y.get(mcYAxes[0].id) : null;
+      const mcYToPixel = mcYRange ? this.buildPixelMapper({ yAxisIndex: 0 }, mcYRange.min, mcYRange.max, mcYAxes[0].scale === "log") : null;
+      let mcDotIndex = 0;
+      const mcHighlight = this.dataset.meta.highlightSampleIndex;
+      const mcStore = this.dataset.meta.waveformStore as {
+        getSeries(traceName: string): Array<{ sampleIndex: number; time: Float64Array; values: Float32Array }>;
+      } | undefined;
+      const mcTraceName = this.dataset.meta.probeTraceName as string | undefined;
+      if (mcHighlight !== undefined && mcHighlight !== null && mcStore && mcTraceName && mcYToPixel) {
+        // 高亮样本：单交点圆点（该样本在当前时刻的插值值，颜色与样本线一致）。
+        const series = mcStore.getSeries(mcTraceName).find((item) => item.sampleIndex === mcHighlight);
+        if (series) {
+          const value = mcInterpolateAt(series.time, series.values, lineX);
+          const py = mcYToPixel(value);
+          if (Number.isFinite(py) && py >= bounds.top && py <= bounds.bottom) {
+            const hue = (mcHighlight * 137.508) % 360;
+            graphics.push({
+              id: "hover-follow-dot-0",
+              type: "circle",
+              silent: true,
+              z: CURSOR_GRAPHIC_Z + 1,
+              zlevel: OVERLAY_ZLEVEL,
+              invisible: false,
+              shape: { cx: linePixelX, cy: py, r: 4 },
+              style: { fill: `hsl(${hue.toFixed(1)} 72% 46%)`, stroke: "#ffffff", lineWidth: 1.5 },
+            });
+            mcDotIndex = 1;
+          }
+        }
+      }
+      else if (mcStats && mcYToPixel) {
+        const dots: Array<{ value: number; color: string; r: number }> = [
+          { value: mcStats.min, color: "#8c8c8c", r: 3 },
+          { value: mcStats.p50, color: "#d4380d", r: 4 },
+          { value: mcStats.max, color: "#8c8c8c", r: 3 },
+        ];
+        for (const dot of dots) {
+          const py = mcYToPixel(dot.value);
+          if (!Number.isFinite(py) || py < bounds.top || py > bounds.bottom) continue;
+          graphics.push({
+            id: `hover-follow-dot-${mcDotIndex}`,
+            type: "circle",
+            silent: true,
+            z: CURSOR_GRAPHIC_Z + 1,
+            zlevel: OVERLAY_ZLEVEL,
+            invisible: false,
+            shape: { cx: linePixelX, cy: py, r: dot.r },
+            style: { fill: dot.color, stroke: "#ffffff", lineWidth: 1.5 },
+          });
+          mcDotIndex += 1;
+        }
+      }
+      for (let index = mcDotIndex; index < this.followDotCount; index += 1) {
+        graphics.push({ id: `hover-follow-dot-${index}`, type: "circle", invisible: true, silent: true });
+      }
+      this.followDotCount = mcDotIndex;
+      this.followOverlayVisible = true;
+      this.chart.setOption({ graphic: graphics }, false);
+      return;
+    }
     // 交点圆点：数据空间求值（线模式插值 / 点模式最近采样点），仿射映射到像素。
     const yAxes = this.getRenderableAxes();
     const yRanges = this.getRenderableYAxisRanges(yAxes);
@@ -1022,6 +1215,27 @@ export class WaveformChart {
    *  最近采样点在视野外时保持原 x。 */
   private snapXToSamples(x: number): number {
     if (this.displayMode === "line" || !this.dataset) return x;
+    // MC 叠加：吸附到 store 共享时间向量的最近采样点。
+    if (this.isMonteCarloDataset()) {
+      const store = this.dataset.meta.waveformStore as {
+        getSeries(traceName: string): Array<{ sampleIndex: number; time: Float64Array; values: Float32Array }>;
+      } | undefined;
+      const traceName = this.dataset.meta.probeTraceName as string | undefined;
+      const first = traceName ? store?.getSeries(traceName)[0] : undefined;
+      if (!first || !first.time.length) return x;
+      const time = first.time;
+      let lo = 0;
+      let hi = time.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (time[mid] < x) lo = mid + 1;
+        else hi = mid;
+      }
+      const index = lo > 0 && Math.abs(time[lo - 1] - x) < Math.abs(time[lo] - x) ? lo - 1 : lo;
+      const snapped = time[index];
+      if (snapped < this.view.xMin || snapped > this.view.xMax) return x;
+      return snapped;
+    }
     let bestX: number | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const trace of this.getInspectionTraces()) {
@@ -1262,6 +1476,8 @@ export class WaveformChart {
     });
     if (this.cursorMode === "cursor" && this.cursorX !== null) this.updateCursorAtX();
     // 视野变了但鼠标未必动，重画覆盖层。
+    // 缩放/平移不走 render()，必须在这里通知叠加画布同步几何并重绘。
+    this.renderCallbacks.onViewChange.forEach((callback) => callback());
     this.scheduleFollowOverlay();
   }
 
@@ -1277,13 +1493,10 @@ export class WaveformChart {
   }
 
   private getInspectionTraces(): WaveformTrace[] {
-    const traces = this.getDisplayedTraces();
+    // "__" 开头的是隐形 scaffold 线（只用于撑轴范围），不得进入任何数值读出。
+    const traces = this.getDisplayedTraces().filter((trace) => !trace.name.startsWith("__"));
     if (!this.highlightedTraceIds?.size) return traces;
     return traces.filter((trace) => this.highlightedTraceIds?.has(trace.id));
-  }
-
-  private getCursorLineTraceId(): string | null {
-    return this.getDisplayedTraces()[0]?.id ?? this.getVisibleTraces()[0]?.id ?? null;
   }
 
   private handleLegendSelectionChanged(event: { selected?: Record<string, boolean> }) {
@@ -1370,7 +1583,7 @@ export class WaveformChart {
     return this.chart.containPixel({ gridIndex: 0 }, [localX, localY]);
   }
 
-  private xValueAtPixel(localX: number, localY: number): number {
+  private xValueAtPixel(localX: number, _localY: number): number {
     if (!this.dataset) return NaN;
     const bounds = this.plotBounds();
     const ratio = clamp((localX - bounds.left) / bounds.width, 0, 1);
@@ -1382,7 +1595,7 @@ export class WaveformChart {
     return this.view.xMin + (this.view.xMax - this.view.xMin) * ratio;
   }
 
-  private yValueAtPixel(axisIndex: number, localX: number, localY: number): number {
+  private yValueAtPixel(axisIndex: number, _localX: number, localY: number): number {
     const axis = this.getRenderableAxes()[axisIndex];
     if (!axis) return NaN;
     const bounds = this.plotBounds();

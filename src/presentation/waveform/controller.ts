@@ -1,7 +1,7 @@
 import type { SimulationResult, WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import { t } from "../../shared/i18n";
 import type { AnalysisOverlayHost, AnalysisTraceChoiceController } from "../analysis-presentation";
-import { exportWaveformDatasets } from "../download";
+import { downloadTextFile, exportWaveformDatasets } from "../download";
 import { analysisTitle, escapeHtml, formatInteger } from "../format";
 import { filterAnalogResult } from "../../features/logic/logic-data";
 import { traceColorAt, WaveformChart } from "./chart";
@@ -96,7 +96,7 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.updateExportState();
 	}
 
-	setDataset(dataset: WaveformDataset | null): void {
+	setDataset(dataset: WaveformDataset | null, opts?: { keepView?: boolean }): void {
 		if (!dataset) {
 			this.clear();
 			return;
@@ -106,8 +106,20 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.traceSelection = new Map([[dataset.id, new Set(dataset.traces.map((trace) => trace.id))]]);
 		this.renderResultTabs();
 		this.chart.setVisibleTraceIds(null, false);
-		this.chart.setDataset(dataset);
+		this.chart.setDataset(dataset, { keepView: opts?.keepView === true });
 		this.updateExportState();
+	}
+
+	getPlotGeometry() {
+		return this.chart.getPlotGeometry();
+	}
+
+	onChartAfterRender(callback: () => void): () => void {
+		return this.chart.onAfterRender(callback);
+	}
+
+	getDisplayMode(): "line" | "points" | "both" {
+		return this.chart.getDisplayMode();
 	}
 
 	getDataset(): WaveformDataset | null {
@@ -372,6 +384,10 @@ export class WaveformController implements AnalysisOverlayHost {
 			this.appendLog(t("log.noWaveformExport"));
 			return;
 		}
+		// MC 模式：scaffold 的 meta.waveformStore 携带全量波形，导出它（不跨模块）。
+		if (this.result.datasets.some((dataset) => dataset.id === "mc-scaffold")) {
+			return this.exportScaffoldWaveforms();
+		}
 		try {
 			this.elements.exportButton.disabled = true;
 			const exported = await exportWaveformDatasets(this.result.datasets, {
@@ -385,6 +401,36 @@ export class WaveformController implements AnalysisOverlayHost {
 		finally {
 			this.updateExportState();
 		}
+	}
+
+	/** MC scaffold：把 meta.waveformStore 里的全量波形导出为 CSV（数据随图表走，不跨模块）。 */
+	private exportScaffoldWaveforms(): void {
+		const dataset = this.result?.datasets.find((item) => item.id === "mc-scaffold");
+		const store = dataset?.meta?.waveformStore as {
+			getSeries(traceName: string): Array<{ sampleIndex: number; time: Float64Array; values: Float32Array }>;
+		} | undefined;
+		const traceName = dataset?.meta?.probeTraceName as string | undefined;
+		if (!store || !traceName) return;
+		const seriesList = store.getSeries(traceName);
+		if (!seriesList.length) return;
+		const time = seriesList[0].time;
+		// 表头用横轴真名：AC=频率(freq)，DC=扫描源，瞬态=time
+		const xAxisName = dataset?.xAxis.name?.trim() || "x";
+		const xAxisUnit = dataset?.xAxis.unit?.trim();
+		const firstHeader = xAxisUnit ? `${xAxisName} (${xAxisUnit})` : xAxisName;
+		const count = Math.min(time.length, ...seriesList.map((s) => s.values.length));
+		const lines: string[] = [`${firstHeader},${seriesList.map((s) => `#${s.sampleIndex}`).join(",")}`];
+		for (let index = 0; index < count; index += 1) {
+			const row = [String(time[index])];
+			for (const series of seriesList) row.push(String(series.values[index]));
+			lines.push(row.join(","));
+		}
+		downloadTextFile(
+			`monte-carlo-waveform-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
+			lines.join("\r\n"),
+			"text/csv;charset=utf-8",
+		);
+		this.appendLog(t("log.mcWaveformExported", seriesList.length, count));
 	}
 
 	private updateExportState(): void {

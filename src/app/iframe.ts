@@ -39,8 +39,6 @@ import {
 } from '../presentation/analysis-presentation';
 import { analysisLabel, analysisUiCatalog, isStandardAnalysis, parseAnalysisType } from './analysis-catalog';
 
-const DEFAULT_MC_WAVEFORM_SAMPLE_LIMIT = 200;
-
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('App root not found');
 
@@ -141,11 +139,11 @@ let lastAutoRunImportKey = '';
 let lastAutoRunImportAt = 0;
 let pendingAutoRunImportKey = '';
 let runningSimulation = false;
+let mcAbortController: AbortController | null = null;
 let currentWorstCaseObjective: WorstCaseObjective | null = null;
 let currentCompatMode: string | undefined;
 let lastEngineAvailability: 'wasm' | 'missing' | null = null;
 let activeInputView: 'netlist' | 'mcSettings' = 'netlist';
-let mcSettingsVisited = false;
 let currentNetlistMetaLabel = '';
 let currentNetlistMetaSampleKey = '';
 
@@ -241,7 +239,6 @@ monteCarloController = new MonteCarloController(
 		workbench.activateBottomPanel(panel);
 		if (expand) workbench.toggleBottomCollapsed(false);
 	},
-	DEFAULT_MC_WAVEFORM_SAMPLE_LIMIT,
 );
 
 const worstCaseController = new WorstCaseController(
@@ -324,6 +321,12 @@ netlistInput.addEventListener('input', () => {
 });
 
 runButton.addEventListener('click', () => {
+	// MC 运行中：运行按钮即停止按钮（完成当前样本后停止，已绘波形保留）。
+	if (runningSimulation && getAnalysisType() === 'monte-carlo' && mcAbortController) {
+		mcAbortController.abort();
+		appendLog(t('log.mcStopRequested'));
+		return;
+	}
 	void runCurrentNetlist('manual');
 });
 
@@ -493,6 +496,7 @@ async function runCurrentNetlist(trigger: 'manual' | 'eda-auto') {
 		return;
 	}
 
+	mcAbortController = getAnalysisType() === 'monte-carlo' ? new AbortController() : null;
 	const request = buildCurrentAnalysisRequest(netlist);
 	if (!request) return;
 	prepareAnalysisRun(request, trigger);
@@ -508,8 +512,7 @@ async function runCurrentNetlist(trigger: 'manual' | 'eda-auto') {
 	}
 	finally {
 		setRunning(false);
-		// 仿真完成后不再自动弹出曲线选择弹窗（标准分析/MC 均不弹）：
-		// 探针默认筛选仍在 present() 内完成，弹窗只在手动点"曲线"按钮时打开。
+		mcAbortController = null;
 		void refreshEngineStatus();
 	}
 }
@@ -527,6 +530,8 @@ function buildCurrentAnalysisRequest(netlist: string): ProductAnalysisRequest | 
 				seed: readMonteCarloSeed(),
 				probeNodes: currentProbeNodes,
 				compatMode: currentCompatMode,
+				onSampleProgress: (progress) => monteCarloController.onSampleProgress(progress),
+				signal: mcAbortController?.signal,
 			},
 		};
 	}
@@ -712,11 +717,6 @@ function updateWorstCaseInputMode() {
 	const isMonteCarlo = type === 'monte-carlo';
 	mcSettingsDockButton.classList.toggle('hidden', !isMonteCarlo);
 	if (isMonteCarlo) worstCaseController.setObjective(currentWorstCaseObjective);
-	// MC 时首次自动切到设置视图，展示 EDA 带入的次数与种子。
-	if (isMonteCarlo && activeInputView === 'netlist' && !mcSettingsVisited) {
-		mcSettingsVisited = true;
-		activateInputPanel('mcSettings', false);
-	}
 	if (!isMonteCarlo && activeInputView === 'mcSettings') activateInputPanel('netlist', false);
 }
 
@@ -773,7 +773,9 @@ function isValidMcInteger(raw: string, min: number, max: number): boolean {
 function setRunning(running: boolean) {
 	runningSimulation = running;
 	const analysisType = getAnalysisType();
-	runButton.disabled = running;
+	// MC 运行中：运行按钮变为"停止"（可点击）；其余分析运行中仍禁用。
+	const mcStopButton = running && analysisType === 'monte-carlo' && mcAbortController !== null;
+	runButton.disabled = running && !mcStopButton;
 	analysisModeSelect.disabled = running;
 	mcSampleCountInput.disabled = running;
 	mcSeedInput.disabled = running;
@@ -783,7 +785,9 @@ function setRunning(running: boolean) {
 	logicController.setRunning(running);
 	runButton.classList.toggle('loading', running);
 	runButton.innerHTML = running
-		? `<span class="spinner"></span>${analysisUiCatalog[analysisType].runningLabel()}`
+		? (mcStopButton
+			? `<span class="spinner"></span>${t('action.stop')}`
+			: `<span class="spinner"></span>${analysisUiCatalog[analysisType].runningLabel()}`)
 		: `${iconHtml('run')}${analysisUiCatalog[analysisType].runLabel()}`;
 }
 

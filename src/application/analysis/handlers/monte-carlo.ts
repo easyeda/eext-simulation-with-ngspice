@@ -22,6 +22,8 @@ export function createMonteCarloHandler(
 				sampleCount: request.options.sampleCount,
 				seed: request.options.seed,
 				compatMode: request.options.compatMode,
+				onSampleProgress: request.options.onSampleProgress,
+				signal: request.options.signal,
 			});
 			return {
 				ok: response.ok,
