@@ -245,3 +245,37 @@
 	display: none;
 }
 
+
+/* 运行日志分色：插件日志=默认色，ngspice 输出=蓝，警告=黄，错误=红。 */
+.log-line--plugin {
+	color: inherit;
+}
+
+.log-line--ngspice {
+	color: #1890ff;
+}
+
+.log-line--warn {
+	color: #faad14;
+}
+
+.log-line--error {
+	color: #ff4d4f;
+}
+
+/* 运行日志分色：插件日志=默认色，ngspice 输出=蓝，警告=黄，错误=红。 */
+.log-line--plugin {
+	color: inherit;
+}
+
+.log-line--ngspice {
+	color: #1890ff;
+}
+
+.log-line--warn {
+	color: #faad14;
+}
+
+.log-line--error {
+	color: #ff4d4f;
+}

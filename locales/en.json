@@ -153,7 +153,6 @@
 	"log.rpcReceived": "Fetched latest netlist by RPC: ${1}, ${2} probes",
 	"log.busConnected": "Connected to the EDA message bus and waiting for the current schematic netlist",
 	"log.busFailed": "Message bus connection failed: ${1}",
-	"log.duplicateSkipped": "Skipped duplicate netlist message: ${1}",
 	"log.probesReceived": "Received ${1} EDA probes; they will be the initially displayed traces",
 	"log.netlistImported": "Imported simulation netlist from ${1}: ${2}",
 	"log.analysisDetected": "Detected analysis: ${1}${2}",

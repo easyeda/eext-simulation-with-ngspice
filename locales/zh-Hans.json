@@ -153,7 +153,6 @@
 	"log.rpcReceived": "RPC 拉取到最近网表: ${1}，探针 ${2} 个",
 	"log.busConnected": "已连接 EDA 消息总线，等待当前原理图仿真网表",
 	"log.busFailed": "消息总线连接失败: ${1}",
-	"log.duplicateSkipped": "跳过重复网表消息: ${1}",
 	"log.probesReceived": "已接收 EDA 探针 ${1} 个，将作为默认显示曲线",
 	"log.netlistImported": "已从 ${1} 导入仿真网表: ${2}",
 	"log.analysisDetected": "识别模式: ${1}${2}",

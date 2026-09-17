@@ -1054,7 +1054,6 @@ export class WaveformChart {
 
     this.panState.dragging = true;
     this.el.style.cursor = "grabbing";
-    this.hideCursorMarkers();
     const xRange = constrainXView(panRange(this.panState.view.xMin, this.panState.view.xMax, dx / this.panState.bounds.width, this.dataset.xAxis.scale === "log", "x"), this.getXBounds());
     this.view.xMin = xRange.min;
     this.view.xMax = xRange.max;
@@ -1474,7 +1473,10 @@ export class WaveformChart {
       yAxis: yAxes.map((axis, index) => this.buildYAxisViewUpdate(axis, index, yAxisRanges)),
       series: seriesUpdates,
     });
-    if (this.cursorMode === "cursor" && this.cursorX !== null) this.updateCursorAtX();
+    if (this.cursorMode === "cursor" && this.cursorX !== null) {
+      this.cursorX = this.snapXToSamples(clamp(this.cursorX, this.view.xMin, this.view.xMax));
+      this.updateCursorAtX();
+    }
     // 视野变了但鼠标未必动，重画覆盖层。
     // 缩放/平移不走 render()，必须在这里通知叠加画布同步几何并重绘。
     this.renderCallbacks.onViewChange.forEach((callback) => callback());

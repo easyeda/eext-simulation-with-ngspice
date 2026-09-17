@@ -19,6 +19,7 @@ import {
 	t,
 } from '../shared/i18n';
 import { applyTranslations } from '../presentation/localization';
+import { escapeHtml } from '../presentation/format';
 import { iconHtml } from '../shared/icons';
 import type { AnalysisType } from '../shared/analysis-types';
 import type { WorstCaseObjective } from '../features/worst-case/types';
@@ -131,9 +132,12 @@ const workbench = new WorkbenchController({
 	resizeChart: resizeAnalysisCharts,
 });
 
-let logLines: string[] = [];
+type LogLevel = 'plugin' | 'ngspice' | 'warn' | 'error';
+interface LogEntry { text: string; level: LogLevel }
+let logLines: LogEntry[] = [];
 let currentProbeNodes: ProbeTarget[] = [];
 let lastAppliedImportKey = '';
+let lastLoggedNetlistKey = '';
 let lastAppliedImportAt = 0;
 let lastAutoRunImportKey = '';
 let lastAutoRunImportAt = 0;
@@ -398,11 +402,14 @@ document.addEventListener('keydown', (event) => {
 function subscribeToEdaNetlist() {
 	connectNetlistClient({
 		onMessage: (imported, channel) => {
-			appendLog(t(
-				channel === 'broadcast' ? 'log.broadcastReceived' : 'log.rpcReceived',
-				imported.fileName,
-				imported.defaultVisibleProbes.length,
-			));
+			if (netlistImportKey(imported) !== lastLoggedNetlistKey) {
+				lastLoggedNetlistKey = netlistImportKey(imported);
+				appendLog(t(
+					channel === 'broadcast' ? 'log.broadcastReceived' : 'log.rpcReceived',
+					imported.fileName,
+					imported.defaultVisibleProbes.length,
+				));
+			}
 			applyImportedNetlist(imported);
 		},
 		onConnected: () => appendLog(t('log.busConnected')),
@@ -416,7 +423,6 @@ function applyImportedNetlist(imported: NetlistImportMessage) {
 	const importKey = netlistImportKey(imported);
 	const now = Date.now();
 	if (importKey === lastAppliedImportKey && now - lastAppliedImportAt < IMPORT_RETRY_DEDUPE_MS) {
-		appendLog(t('log.duplicateSkipped', imported.fileName));
 		scheduleImportedAutoRun(imported, importKey);
 		return;
 	}
@@ -791,19 +797,28 @@ function setRunning(running: boolean) {
 		: `${iconHtml('run')}${analysisUiCatalog[analysisType].runLabel()}`;
 }
 
-function appendLog(line: string) {
+function appendLog(line: string, level: LogLevel = 'plugin') {
 	const time = new Date().toLocaleTimeString(getNumberLocale(), { hour12: false });
-	logLines.push(`[${time}] ${line}`);
+	logLines.push({ text: `[${time}] ${line}`, level });
 	logLines = logLines.slice(-500);
 	renderLogs();
 }
 
+/** 引擎/runner 侧日志分级：warning/error 按前缀升级，其余归为 ngspice 输出。 */
+function classifyEngineLog(line: string): LogLevel {
+	if (/^warning[: ]/i.test(line)) return 'warn';
+	if (/^error[: ]/i.test(line) || /fatal|exited unexpectedly|failed to load/i.test(line)) return 'error';
+	return 'ngspice';
+}
+
 function mergeLogs(lines: string[]) {
-	for (const line of lines) appendLog(line);
+	for (const line of lines) appendLog(line, classifyEngineLog(line));
 }
 
 function renderLogs() {
-	logOutput.textContent = logLines.join('\n');
+	logOutput.innerHTML = logLines
+		.map((entry) => `<span class="log-line log-line--${entry.level}">${escapeHtml(entry.text)}</span>`)
+		.join('\n');
 	logOutput.scrollTop = logOutput.scrollHeight;
 }
 
