@@ -169,6 +169,7 @@
 	"log.runStart": "Starting simulation...",
 	"log.simulationFailed": "Simulation failed: ${1}",
 	"log.unknownError": "unknown error",
+	"log.failureSeeAbove": "see error log above",
 	"log.simulationComplete": "Simulation completed and waveforms were updated",
 	"log.requestFailed": "Request failed: ${1}",
 	"log.noMeasurements": "No .meas statements were found in the Monte Carlo netlist; sample statistics cannot be generated",

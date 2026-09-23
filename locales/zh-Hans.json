@@ -169,6 +169,7 @@
 	"log.runStart": "开始运行仿真...",
 	"log.simulationFailed": "仿真失败: ${1}",
 	"log.unknownError": "未知错误",
+	"log.failureSeeAbove": "详见上方错误日志",
 	"log.simulationComplete": "仿真完成，波形已更新",
 	"log.requestFailed": "请求失败: ${1}",
 	"log.noMeasurements": "Monte Carlo 网表中没有检测到 .meas，无法生成样本统计",

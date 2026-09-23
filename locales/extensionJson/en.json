@@ -1,5 +1,5 @@
 {
 	"NGspice 电路仿真": "NGspice Circuit Simulation",
-	"面向嘉立创 EDA 专业版的 NGspice 本地电路仿真与波形分析插件，支持 transient、AC、DC 分析与逻辑分析图谱，以及波形查看和结果导出。": "An NGspice circuit simulation and waveform analysis extension for EasyEDA Pro, supporting transient, AC, DC analysis and logic analyzer charts with waveform viewing and result export.",
+	"面向嘉立创 EDA 专业版的 NGspice 本地电路仿真与波形分析插件，支持 transient、AC、DC 分析、蒙特卡洛分析、最坏情况分析与逻辑分析图谱，以及波形查看和结果导出。": "An NGspice circuit simulation and waveform analysis extension for EasyEDA Pro, supporting transient, AC, DC, Monte Carlo and worst-case analysis, logic analyzer charts, waveform viewing and result export.",
 	"打开仿真界面": "Open Simulation Viewer"
 }

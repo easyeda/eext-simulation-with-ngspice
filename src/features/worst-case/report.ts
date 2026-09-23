@@ -1,6 +1,12 @@
 import type { WorstCaseResult } from "./types";
 import { worstCaseTechnicalRunLabel } from "./case-label";
 
+/** 运行明细行序：标称 → 最坏低侧 → 最坏高侧 → 参数灵敏度（同类保持原相对顺序）。 */
+export function sortWorstCaseRuns(runs: WorstCaseResult["runs"]): WorstCaseResult["runs"] {
+	const kindOrder: Record<string, number> = { nominal: 0, "worst-low": 1, "worst-high": 2 };
+	return [...runs].sort((a, b) => (kindOrder[a.kind] ?? 3) - (kindOrder[b.kind] ?? 3));
+}
+
 export function worstCaseResultToCsv(result: WorstCaseResult): string {
 	const headers = [
 		"recordType", "id", "label", "status", "value", "unit", "delta", "deltaPercent",
@@ -21,7 +27,7 @@ export function worstCaseResultToCsv(result: WorstCaseResult): string {
 			String(impact.objectiveAtMin), String(impact.objectiveAtMax), impact.lowSelection, impact.highSelection, String(impact.impact), "", "",
 		]);
 	}
-	for (const run of result.runs) {
+	for (const run of sortWorstCaseRuns(result.runs)) {
 		const objective = run.measurements.find((item) => item.id === normalizeId(result.objective.measurementId));
 		rows.push([
 			"case", run.id, worstCaseTechnicalRunLabel(run), run.ok ? "ok" : "failed", objective ? String(objective.value) : "", objective?.unit || result.objective.unit || "", "", "",

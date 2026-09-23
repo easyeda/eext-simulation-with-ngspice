@@ -2,8 +2,8 @@
 	"name": "simulation-with-ngspice",
 	"uuid": "da6f02cde1cd4384abe56140588973be",
 	"displayName": "NGspice 电路仿真",
-	"description": "面向嘉立创 EDA 专业版的 NGspice 本地电路仿真与波形分析插件，支持 transient、AC、DC 分析与逻辑分析图谱，以及波形查看和结果导出。",
-	"version": "1.8.1",
+	"description": "面向嘉立创 EDA 专业版的 NGspice 本地电路仿真与波形分析插件，支持 transient、AC、DC 分析、蒙特卡洛分析、最坏情况分析与逻辑分析图谱，以及波形查看和结果导出。",
+	"version": "1.9.1",
 	"publisher": "chensiyu",
 	"engines": {
 		"eda": "4.1.0"

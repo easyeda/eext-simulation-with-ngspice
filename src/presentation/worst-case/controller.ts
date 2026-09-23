@@ -9,7 +9,7 @@ import { t } from "../../shared/i18n";
 import type { ProbeTarget } from "../../shared/probe";
 import { downloadTextFile } from "../download";
 import { buildWorstCaseOverlayDataset, buildWorstCaseProbeOptions, type WorstCaseProbeOption } from "../../features/worst-case/view-model";
-import { worstCaseResultToCsv } from "../../features/worst-case/report";
+import { sortWorstCaseRuns, worstCaseResultToCsv } from "../../features/worst-case/report";
 import type { WorstCaseObjective, WorstCaseResult } from "../../features/worst-case/types";
 
 export interface WorstCaseControllerElements {
@@ -152,16 +152,24 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 		}
 		const sorted = [...result.parameterImpacts].sort((a, b) => b.impact - a.impact);
 		const unitSuffix = result.objective.unit ? ` ${escapeHtml(result.objective.unit)}` : "";
+		const objectiveName = result.objective.label.replace(/\s+at\s+.*$/i, "").trim();
+		const objectiveSuffix = objectiveName ? ` (${escapeHtml(objectiveName)})` : "";
+		const formatSelection = (selection: "min" | "max" | "nominal", item: { minValue: number; maxValue: number; nominalValue: number }): string => {
+			if (selection === "min") return `MIN=${formatNumber(item.minValue)}`;
+			if (selection === "max") return `MAX=${formatNumber(item.maxValue)}`;
+			return `NOMINAL=${formatNumber(item.nominalValue)}`;
+		};
 		this.impactTable.innerHTML = `<table class="mc-table wc-table">
-			<thead><tr><th>${escapeHtml(t("wca.parameter"))}</th><th>${escapeHtml(t("wca.objectiveAtMin"))}</th><th>${escapeHtml(t("wca.objectiveAtMax"))}</th><th>${escapeHtml(t("wca.lowSelection"))}</th><th>${escapeHtml(t("wca.highSelection"))}</th><th>${escapeHtml(t("wca.impact"))}</th></tr></thead>
-			<tbody>${sorted.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${formatNumber(item.objectiveAtMin)}${unitSuffix}</td><td>${formatNumber(item.objectiveAtMax)}${unitSuffix}</td><td>${escapeHtml(item.lowSelection)}</td><td>${escapeHtml(item.highSelection)}</td><td>${formatNumber(item.impact)}</td></tr>`).join("")}</tbody>
+			<thead><tr><th>${escapeHtml(t("wca.parameter"))}</th><th>${escapeHtml(t("wca.objectiveAtMin"))}${objectiveSuffix}</th><th>${escapeHtml(t("wca.objectiveAtMax"))}${objectiveSuffix}</th><th>${escapeHtml(t("wca.lowSelection"))}</th><th>${escapeHtml(t("wca.highSelection"))}</th><th>${escapeHtml(t("wca.impact"))}</th></tr></thead>
+			<tbody>${sorted.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${formatNumber(item.objectiveAtMin)}${unitSuffix}</td><td>${formatNumber(item.objectiveAtMax)}${unitSuffix}</td><td>${escapeHtml(formatSelection(item.lowSelection, item))}</td><td>${escapeHtml(formatSelection(item.highSelection, item))}</td><td>${formatNumber(item.impact)}</td></tr>`).join("")}</tbody>
 		</table>`;
 	}
 
 	private renderCases(result: WorstCaseResult): void {
+		const sortedRuns = sortWorstCaseRuns(result.runs);
 		this.casesTable.innerHTML = `<table class="mc-table wc-table">
 			<thead><tr><th>${escapeHtml(t("wca.case"))}</th><th>${escapeHtml(t("table.status"))}</th><th>${escapeHtml(result.objective.label)}</th><th>${escapeHtml(t("wca.assignments"))}</th><th>${escapeHtml(t("table.error"))}</th></tr></thead>
-			<tbody>${result.runs.map((run) => {
+			<tbody>${sortedRuns.map((run) => {
 				const objective = run.measurements.find((measurement) => measurement.id === normalizeMeasurementId(result.objective.measurementId));
 				const finalRun = run.kind === "nominal" || run.kind === "worst-low" || run.kind === "worst-high";
 				const objectiveValue = objective ? `${formatNumber(objective.value)}${objective.unit ? ` ${escapeHtml(objective.unit)}` : ""}` : "-";

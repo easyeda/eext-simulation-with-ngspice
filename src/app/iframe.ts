@@ -511,7 +511,7 @@ async function runCurrentNetlist(trigger: 'manual' | 'eda-auto') {
 		const execution = await executeAnalysis(request);
 		mergeLogs(execution.logs);
 		for (const artifact of execution.artifacts) presentAnalysisArtifact(artifact);
-		appendExecutionOutcome(execution.analysisType, execution.ok, execution.error);
+		appendExecutionOutcome(execution.analysisType, execution.ok, execution.error, execution.logs);
 	}
 	catch (error) {
 		appendLog(t('log.requestFailed', error instanceof Error ? error.message : String(error)));
@@ -603,13 +603,21 @@ function presentAnalysisArtifact(artifact: ProductAnalysisArtifact) {
 	artifactPresenters[artifact.kind](artifact);
 }
 
-function appendExecutionOutcome(analysisType: AnalysisType, ok: boolean, error?: string) {
+function appendExecutionOutcome(analysisType: AnalysisType, ok: boolean, error: string | undefined, logs: string[]) {
 	if (!ok) {
-		appendLog(analysisUiCatalog[analysisType].failureMessage(error || t('log.unknownError')));
+		appendLog(analysisUiCatalog[analysisType].failureMessage(outcomeErrorDetail(error, logs)));
 		return;
 	}
 	const successMessage = analysisUiCatalog[analysisType].successMessage?.();
 	if (successMessage) appendLog(successMessage);
+}
+
+/** 错误详情去重 */
+function outcomeErrorDetail(error: string | undefined, logs: string[]): string {
+	if (!error) return t('log.unknownError');
+	const duplicated = logs.some((line) => line.length >= 12 && (line.includes(error) || error.includes(line)));
+	if (duplicated || logs.some(isErrorLevelLogLine)) return t('log.failureSeeAbove');
+	return error;
 }
 
 /** 执行仿真 */
@@ -804,10 +812,15 @@ function appendLog(line: string, level: LogLevel = 'plugin') {
 	renderLogs();
 }
 
-/** 引擎/runner 侧日志分级：warning/error 按前缀升级，其余归为 ngspice 输出。 */
+/** 引擎/runner 侧日志的错误级判定：红色高亮，outcome 行据此决定是否重复错误详情。 */
+function isErrorLevelLogLine(line: string): boolean {
+	return /^error[: ]/i.test(line) || /fatal|exited unexpectedly|failed to load/i.test(line);
+}
+
+/** 引擎/runner 侧日志分级：warning/error 按前缀升级 */
 function classifyEngineLog(line: string): LogLevel {
 	if (/^warning[: ]/i.test(line)) return 'warn';
-	if (/^error[: ]/i.test(line) || /fatal|exited unexpectedly|failed to load/i.test(line)) return 'error';
+	if (isErrorLevelLogLine(line)) return 'error';
 	return 'ngspice';
 }
 

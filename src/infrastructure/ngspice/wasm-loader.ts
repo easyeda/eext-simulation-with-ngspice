@@ -54,6 +54,14 @@ const XSPICE_CODE_MODEL_DIR = "/usr/lib/ngspice";
 const XSPICE_CODE_MODEL_NAMES = ["spice2poly.cm", "analog.cm", "digital.cm", "xtradev.cm", "xtraevt.cm", "table.cm", "tlines.cm"];
 let loaderPromise: Promise<boolean> | null = null;
 const xspiceInstalledModules = new WeakSet<NgspiceWasmModule>();
+// 每次分析都会重建 WASM 模块，环境信息类日志只记录一次，避免每次运行重复打印。
+const infoLogsEmitted = new Set<string>();
+
+function pushInfoOnce(logs: string[], message: string): void {
+	if (infoLogsEmitted.has(message)) return;
+	infoLogsEmitted.add(message);
+	logs.push(message);
+}
 
 export function isWasmNgspiceAvailable(): boolean {
 	return Boolean(resolveGlobalFactory() || resolveGlobalNgspiceModule());
@@ -135,7 +143,7 @@ async function loadModule(
 ): Promise<NgspiceWasmModule> {
 	if (!factory) throw new Error("ngspice WASM factory is not available");
 	const wasmBinary = options.wasmBinary ?? resolveEmbeddedWasmBinary(logs);
-	if (wasmBinary) logs.push("Using embedded ngspice.wasm binary");
+	if (wasmBinary) pushInfoOnce(logs, "Using embedded ngspice.wasm binary");
 	const module = await factory({
 		print: (line) => logs.push(line.slice(0, 900)),
 		printErr: (line) => logs.push(line.slice(0, 900)),
@@ -145,7 +153,7 @@ async function loadModule(
 	if (!module?.FS) throw new Error("ngspice WASM module is missing FS");
 	if (!module.NgSpiceWasm) throw new Error("ngspice WASM module is missing NgSpiceWasm");
 	if (options.installXspiceCodeModels !== false) installXspiceCodeModels(module, logs);
-	logs.push("ngspice WASM module loaded");
+	pushInfoOnce(logs, "ngspice WASM module loaded");
 	return module;
 }
 
@@ -228,7 +236,7 @@ function installXspiceCodeModels(module: NgspiceWasmModule, logs: string[]) {
 			logs.push(`XSPICE code model preload failed for ${name}: ${message}`);
 		}
 	}
-	logs.push("XSPICE code models loaded");
+	pushInfoOnce(logs, "XSPICE code models loaded");
 	xspiceInstalledModules.add(module);
 }
 

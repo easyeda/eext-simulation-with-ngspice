@@ -58,6 +58,31 @@ export async function runWorstCaseAnalysis(
 
 	let session: SpiceExecutionSession | null = null;
 	const runs: WorstCaseRunResult[] = [];
+	// 各用例的 run.logs 已带 "用例id: " 前缀；汇总时按消息文本合并，避免同一条
+	// warning/error 随用例数（2N+3）成倍重复。合并行必须让原 message 保持行首，
+	// 否则日志分级按 "^warning:" 锚定会把 warning 降级成普通输出。
+	const caseLogStats = new Map<string, { count: number; cases: string[] }>();
+	const pushCaseLogs = (run: WorstCaseRunResult): void => {
+		for (const raw of run.logs ?? []) {
+			const prefix = `${run.id}: `;
+			const message = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+			const entry = caseLogStats.get(message);
+			if (!entry) {
+				caseLogStats.set(message, { count: 1, cases: [run.id] });
+				continue;
+			}
+			entry.count += 1;
+			if (entry.cases.length < 6 && !entry.cases.includes(run.id)) entry.cases.push(run.id);
+		}
+	};
+	const flushCaseLogs = (): void => {
+		for (const [message, entry] of caseLogStats) {
+			logs.push(entry.count === 1
+				? `${entry.cases[0]}: ${message}`
+				: `${message} (repeated in ${entry.count} runs: ${entry.cases.join(", ")}${entry.count > entry.cases.length ? ", …" : ""})`);
+		}
+		caseLogStats.clear();
+	};
 	try {
 		const opened = await engine.open(netlist, { probeNodes: options.probeNodes, compatMode: options.compatMode });
 		session = opened.session;
@@ -92,9 +117,10 @@ export async function runWorstCaseAnalysis(
 			true,
 		);
 		runs.push(nominal);
-		logs.push(...(nominal.logs ?? []));
+		pushCaseLogs(nominal);
 		const nominalObjective = objectiveValue(nominal, objective.measurementId);
 		if (!nominal.ok || nominalObjective === null) {
+			flushCaseLogs();
 			const error = nominal.error || `Nominal run did not return objective ${objective.measurementId}`;
 			return {
 				ok: false,
@@ -123,7 +149,7 @@ export async function runWorstCaseAnalysis(
 				false,
 			);
 			runs.push(run);
-			logs.push(...(run.logs ?? []));
+			pushCaseLogs(run);
 		}
 
 		const impacts = parameters.flatMap((parameter) => {
@@ -151,7 +177,8 @@ export async function runWorstCaseAnalysis(
 			true,
 		);
 		runs.push(worstLow, worstHigh);
-		logs.push(...(worstLow.logs ?? []), ...(worstHigh.logs ?? []));
+		pushCaseLogs(worstLow);
+		pushCaseLogs(worstHigh);
 
 		const worstLowValue = objectiveValue(worstLow, objective.measurementId);
 		const worstHighValue = objectiveValue(worstHigh, objective.measurementId);
@@ -185,6 +212,7 @@ export async function runWorstCaseAnalysis(
 				: {}),
 			finalDatasets: collectFinalDatasets(runs),
 		};
+		flushCaseLogs();
 		logs.push(`Worst Case runs finished: ${result.completedRunCount}/${expectedRunCount} succeeded`);
 		if (!complete) logs.push("Worst Case result is incomplete");
 		result.logs = trimLogs(logs);
@@ -196,6 +224,7 @@ export async function runWorstCaseAnalysis(
 		};
 	}
 	catch (error) {
+		flushCaseLogs();
 		const message = error instanceof Error ? error.message : String(error);
 		return {
 			ok: false,
@@ -265,7 +294,6 @@ function buildCaseResult(
 		);
 	}
 	const datasets = captureWaveform ? tagWorstCaseDatasets(execution.datasets, plan) : [];
-	logs.push(`${plan.id}: objective=${formatNumber(objectiveMeasurement.value)}`);
 	return {
 		id: plan.id,
 		kind: plan.kind,
@@ -431,9 +459,4 @@ function buildPartialResult(
 		finalDatasets: collectFinalDatasets(runs),
 		logs: trimLogs(logs),
 	};
-}
-
-function formatNumber(value: number): string {
-	if (!Number.isFinite(value)) throw new Error("Worst Case value must be finite");
-	return value === 0 ? "0" : value.toExponential(15).replace(/\.?0+e/, "e");
 }

@@ -6,6 +6,7 @@
 /build/review-assets/
 /build/tmp/
 /third_party/ngspice-46/
+/third_party/emsdk/
 /project-discussion
 /wasm-build/logs/
 /wasm-build/work/

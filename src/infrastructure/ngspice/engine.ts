@@ -30,7 +30,8 @@ export class WasmSpiceEngine implements SpiceEngine {
 
 	async open(netlist: string, options: OpenSpiceSessionOptions = {}): Promise<OpenSpiceSessionResult> {
 		throwIfAborted(options.signal);
-		const logs: string[] = ["Run mode: ngspice WASM"];
+		// Run mode 由各 feature runner 记录（带分析类型上下文）
+		const logs: string[] = [];
 		const session = await NgspiceSession.open(netlist, {
 			wasmBaseUrl: this.options.wasmBaseUrl,
 			timeoutMs: this.options.timeoutMs,

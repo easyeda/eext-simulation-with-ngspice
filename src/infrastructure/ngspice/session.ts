@@ -89,10 +89,6 @@ export class NgspiceSession {
 			const session = new NgspiceSession(engine, prepared.netlist, targets);
 			session.optionalCommand("set noaskquit");
 			session.configureSavedVectors(capturePolicy.vectorSelection, logs);
-			logs.push("ngspice netlist loaded");
-			logs.push(`main-circuit output targets: ${targets.length}`);
-			logs.push(`ngspice vector capture: ${capturePolicy.vectorSelection.mode}`);
-			if (options.probeNodes?.length) logs.push(`EDA default-visible probes: ${options.probeNodes.length}`);
 			return session;
 		}
 		catch (error) {
@@ -162,7 +158,6 @@ export class NgspiceSession {
 		for (let index = 0; index < vectors.length; index += 40) {
 			if (!this.runSaveCommand(vectors.slice(index, index + 40), logs)) return;
 		}
-		logs.push(`ngspice saved vectors configured: ${vectors.length}`);
 	}
 
 	private runSaveCommand(vectors: string[], logs: string[]): boolean {
