@@ -1,5 +1,7 @@
 # NGspice 仿真
 
+[English](./README_EN.md) | 简体中文
+
 版本：V1.9.1
 
 作者：LCEDA
