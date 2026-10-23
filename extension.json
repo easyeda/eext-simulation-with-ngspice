@@ -1,8 +1,8 @@
 {
 	"name": "simulation-with-ngspice",
 	"uuid": "da6f02cde1cd4384abe56140588973be",
-	"displayName": "NGspice 仿真",
-	"description": "NGspice 电路仿真引擎，面向嘉立创 EDA 专业版的 NGspice 电路仿真与波形分析插件，支持 transient、AC、DC 分析、蒙特卡洛分析、最坏情况分析与逻辑分析图谱，以及波形查看和结果导出。",
+	"displayName": "NGspice电路仿真",
+	"description": "NGspice电路电路仿真引擎，面向嘉立创 EDA 专业版的 NGspice 电路仿真与波形分析插件，支持 transient、AC、DC 分析、蒙特卡洛分析、最坏情况分析与逻辑分析图谱，以及波形查看和结果导出。",
 	"version": "1.10.1",
 	"publisher": "EasyEDA",
 	"engines": {
@@ -27,7 +27,7 @@
 		"simulationSchematicNGspice": [
 			{
 				"id": "JlcNgspiceWaveform",
-				"title": "NGspice 仿真",
+				"title": "NGspice电路仿真",
 				"menuItems": [
 					{
 						"id": "OpenWaveformPanel",
