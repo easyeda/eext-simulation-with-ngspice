@@ -1,5 +1,5 @@
 import type { WaveformDataset, WaveformTrace } from "../../shared/waveform";
-import { clamp } from "./axis-format";
+import { clamp } from "../components/chart-kit/axis-format";
 import { extent } from "./series-data";
 
 export interface ViewState {
@@ -60,53 +60,6 @@ export function fitXToDataBounds(
 export function initialCursorValue(min: number, max: number, isLog: boolean): number {
 	if (isLog) return Math.max(min, Number.MIN_VALUE);
 	return Math.min(max, Math.max(min, 0));
-}
-
-export function zoomRange(
-	min: number,
-	max: number,
-	focus: number,
-	scale: number,
-	isLog: boolean,
-): { min: number; max: number } {
-	if (!Number.isFinite(focus)) focus = (min + max) / 2;
-	if (isLog) {
-		const logMin = Math.log10(Math.max(min, Number.MIN_VALUE));
-		const logMax = Math.log10(Math.max(max, Number.MIN_VALUE));
-		const logFocus = Math.log10(Math.max(focus, Number.MIN_VALUE));
-		return {
-			min: 10 ** (logFocus - (logFocus - logMin) * scale),
-			max: 10 ** (logFocus + (logMax - logFocus) * scale),
-		};
-	}
-	return {
-		min: focus - (focus - min) * scale,
-		max: focus + (max - focus) * scale,
-	};
-}
-
-export function panRange(
-	min: number,
-	max: number,
-	ratio: number,
-	isLog: boolean,
-	direction: "x" | "y",
-): { min: number; max: number } {
-	const signedRatio = direction === "x" ? -ratio : ratio;
-	if (isLog) {
-		const logMin = Math.log10(Math.max(min, Number.MIN_VALUE));
-		const logMax = Math.log10(Math.max(max, Number.MIN_VALUE));
-		const shift = signedRatio * (logMax - logMin);
-		return {
-			min: 10 ** (logMin + shift),
-			max: 10 ** (logMax + shift),
-		};
-	}
-	const shift = signedRatio * (max - min);
-	return {
-		min: min + shift,
-		max: max + shift,
-	};
 }
 
 export function constrainXView(

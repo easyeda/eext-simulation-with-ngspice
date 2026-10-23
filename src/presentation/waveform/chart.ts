@@ -1,5 +1,4 @@
-import * as echarts from "echarts";
-import type { ECharts, EChartsOption } from "echarts";
+import type { EChartsOption } from "echarts";
 import { t } from "../../shared/i18n";
 import type { WaveformAxis, WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import {
@@ -13,8 +12,12 @@ import {
 	labelForAnalysis,
 	makeAxisLabelFormatter,
 	readableAxisRange,
-	formatWaveformValue,
-} from "./axis-format";
+} from "../components/chart-kit/axis-format";
+import { ChartBase } from "../components/chart-kit/echarts-chart-base";
+import { CursorInspectorPanel } from "../components/chart-kit/cursor-inspector";
+import { CursorLineGraphics } from "../components/chart-kit/cursor-graphics";
+import { CHART_LEGEND_ICON, colorAt } from "../components/chart-kit/palette";
+import { panRange, zoomRange } from "../components/chart-kit/view-scale";
 import {
 	downsamplePreserveExtremes,
 	extent,
@@ -29,25 +32,15 @@ import {
 	constrainXView,
 	fitXToDataBounds,
 	initialCursorValue,
-	panRange,
-	zoomRange,
 	type ViewState,
 	type XBounds,
 } from "./viewport";
 
 type DisplayMode = "line" | "points" | "both";
-type CursorMode = "follow" | "cursor";
 
 interface RenderedTraceData {
   points: Array<[number, number]>;
   sourceCount: number;
-}
-
-interface InspectorRowElement {
-  traceId: string;
-  row: HTMLDivElement;
-  swatch: HTMLSpanElement;
-  value: HTMLSpanElement;
 }
 
 interface PanState {
@@ -59,31 +52,17 @@ interface PanState {
   dragging: boolean;
 }
 
-const displayLabelKeys: Record<DisplayMode, string> = {
-  line: "display.line",
-  points: "display.points",
-  both: "display.both",
-};
-
-const cursorLabelKeys: Record<CursorMode, string> = {
-  follow: "cursor.follow",
-  cursor: "cursor.cursor",
-};
-
 const TARGET_POINTS_PER_PIXEL = 2.5;
 const MIN_RENDER_POINTS = 1200;
 const MAX_RENDER_POINTS = 12000;
-/** 全部显示曲线的渲染点总预算，按曲线数均摊（条数多时每条自动缩点）。 */
+/** 全部显示曲线的渲染点总预算。 */
 const TOTAL_RENDER_POINTS_BUDGET = 300000;
 const CURSOR_GRAPHIC_Z = 10000;
 /** 自绘覆盖层（跟随线/圆点、游标线/手柄）的独立渲染层，避免更新时整层重绘曲线。 */
 const OVERLAY_ZLEVEL = 100;
 const CURSOR_LABEL_MAX_ROWS = 8;
-export const TRACE_PALETTE = ["#1890ff", "#fa8c16", "#13a8a8", "#52c41a", "#6128ff", "#d73843", "#8c8c8c", "#096dd9"];
-const TRACE_LEGEND_ICON = "path://M0 5 L20 5 L20 7 L0 7 Z M10 2 A4 4 0 1 0 10 10 A4 4 0 1 0 10 2 Z";
-export function traceColorAt(index: number): string {
-  return TRACE_PALETTE[Math.max(0, index) % TRACE_PALETTE.length];
-}
+/** 统一调色板取色入口。 */
+export const traceColorAt = colorAt;
 
 /** 在共享时间向量上线性插值取值；超出范围钳到端点。 */
 function mcInterpolateAt(time: Float64Array, values: Float32Array, x: number): number {
@@ -104,17 +83,8 @@ function mcInterpolateAt(time: Float64Array, values: Float32Array, x: number): n
 }
 
 /** 波形图的 ECharts 展示适配器。 */
-export class WaveformChart {
-  private chart: ECharts;
-  private readonly inspectorEl: HTMLDivElement;
-  private readonly inspectorAxisNameEl: HTMLSpanElement;
-  private readonly inspectorInputEl: HTMLInputElement;
-  private readonly inspectorUnitEl: HTMLSpanElement;
-  private readonly inspectorRowsEl: HTMLDivElement;
-  private inspectorXFactor = 1;
+export class WaveformChart extends ChartBase {
   private dataset: WaveformDataset | null = null;
-  private displayMode: DisplayMode = "line";
-  private cursorMode: CursorMode = "follow";
   private cursorX: number | null = null;
   private cursorDragging = false;
   /** 跟随模式鼠标所在 x（tooltip 数值用）。 */
@@ -128,7 +98,9 @@ export class WaveformChart {
   /** 覆盖层是否已在画布上。 */
   private followOverlayVisible = false;
   private cursorUpdateFrame: number | null = null;
-  private inspectorRowElements: InspectorRowElement[] = [];
+  /** 游标模式数值面板（chart-kit 共用组件，含防穿透/输入约束/居中联动）。 */
+  private readonly inspectorPanel: CursorInspectorPanel;
+  private readonly cursorLineGraphics: CursorLineGraphics;
   private visibleTraceIds: Set<string> | null = null;
   private highlightedTraceIds: Set<string> | null = null;
   private datasetXBounds: XBounds | null = null;
@@ -136,6 +108,8 @@ export class WaveformChart {
   private renderedPointsCache = new Map<string, Array<[number, number]>>();
   private legendHiddenTraceIds = new Set<string>();
   private panState: PanState | null = null;
+  /** true = 当前展示的是上一次成功运行的结果（本次运行失败时保留旧图）。 */
+  private staleResult = false;
   /** 每次渲染完成后通知的回调（叠加层取绘图区几何并重绘）。 */
   private readonly renderCallbacks = { onViewChange: new Set<() => void>() };
   private view: ViewState = {
@@ -145,36 +119,25 @@ export class WaveformChart {
   };
 
   constructor(
-    private readonly el: HTMLElement,
-    private readonly titleEl: HTMLElement,
-    private readonly badgesEl: HTMLElement,
+    el: HTMLElement,
+    titleElement: HTMLElement,
+    badgesElement: HTMLElement,
   ) {
-    this.chart = echarts.init(el, null, { renderer: "canvas" });
-    this.inspectorEl = document.createElement("div");
-    this.inspectorEl.className = "waveform-inspector hidden";
-    this.inspectorEl.innerHTML = `
-      <div class="waveform-inspector-header">
-        <span class="waveform-inspector-axis"></span>
-        <input class="waveform-inspector-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="${escapeHtml(t("chart.inspectorAria"))}" />
-        <span class="waveform-inspector-unit"></span>
-      </div>
-      <div class="waveform-inspector-rows"></div>
-    `;
-    this.inspectorAxisNameEl = this.inspectorEl.querySelector<HTMLSpanElement>(".waveform-inspector-axis") as HTMLSpanElement;
-    this.inspectorInputEl = this.inspectorEl.querySelector<HTMLInputElement>(".waveform-inspector-input") as HTMLInputElement;
-    this.inspectorUnitEl = this.inspectorEl.querySelector<HTMLSpanElement>(".waveform-inspector-unit") as HTMLSpanElement;
-    this.inspectorRowsEl = this.inspectorEl.querySelector<HTMLDivElement>(".waveform-inspector-rows") as HTMLDivElement;
-    this.el.appendChild(this.inspectorEl);
-    this.installInspectorEvents();
+    super(el, titleElement, badgesElement);
+    this.inspectorPanel = new CursorInspectorPanel({
+      container: el,
+      onCommit: (value) => this.commitInspectorX(value),
+      inputAriaLabel: t("chart.inspectorAria"),
+    });
+    this.cursorLineGraphics = new CursorLineGraphics(this.chart, "fixed-cursor-line", "fixed-cursor-handle", CURSOR_GRAPHIC_Z, OVERLAY_ZLEVEL);
     this.el.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
-    // 捕获阶段监听 mousemove：zrender（canvas 子元素，目标阶段）会在 el 冒泡处理前
-    // 调用 tooltip formatter 读 hoverX，必须先于它更新，否则数值滞后一拍。
+    // 捕获阶段监听：ECharts 内部的提示框会比普通冒泡先读到鼠标位置，
+    // 必须抢在它之前更新，否则读数滞后一拍。
     this.el.addEventListener("mousemove", (event) => this.handleMouseMove(event), { capture: true });
     this.el.addEventListener("mouseleave", () => this.handleMouseLeave());
     this.el.addEventListener("mousedown", (event) => this.handleMouseDown(event));
     window.addEventListener("mousemove", (event) => this.handleWindowMouseMove(event));
     window.addEventListener("mouseup", (event) => this.handleWindowMouseUp(event));
-    window.addEventListener("resize", () => this.resize());
     this.chart.on("legendselectchanged", (event: any) => this.handleLegendSelectionChanged(event));
     this.renderEmpty();
   }
@@ -232,30 +195,27 @@ export class WaveformChart {
     this.render();
   }
 
-  resize() {
-    this.chart.resize();
+  protected hasContent(): boolean {
+    return this.dataset !== null;
+  }
+
+  protected onCursorModeChanged(): void {
+    if (this.cursorMode === "cursor") {
+      this.ensureCursorPosition();
+    } else {
+      this.hideCursorMarkers();
+    }
+  }
+
+  protected afterResize(): void {
     this.restoreCursorAfterRender();
     this.scheduleFollowOverlay();
     // resize 时 ECharts 自行重绘，不走 render()——同样通知叠加画布同步几何。
     this.renderCallbacks.onViewChange.forEach((callback) => callback());
   }
 
-  refreshLocale() {
-    this.inspectorInputEl.setAttribute("aria-label", t("chart.inspectorAria"));
-    if (this.dataset) this.render();
-    else this.renderEmpty();
-  }
-
-  cycleDisplayMode(): string {
-    const modes: DisplayMode[] = ["line", "points", "both"];
-    const index = modes.indexOf(this.displayMode);
-    this.displayMode = modes[(index + 1) % modes.length];
-    this.render();
-    return t(displayLabelKeys[this.displayMode]);
-  }
-
-  getDisplayLabel(): string {
-    return t(displayLabelKeys[this.displayMode]);
+  protected onLocaleChanged(): void {
+    this.inspectorPanel.setAriaLabel(t("chart.inspectorAria"));
   }
 
   /** 当前显示模式（叠加画布同步用）。 */
@@ -263,50 +223,17 @@ export class WaveformChart {
     return this.displayMode;
   }
 
-  cycleCursorMode(): string {
-    this.cursorMode = this.cursorMode === "follow" ? "cursor" : "follow";
-    if (this.cursorMode === "cursor") {
-      this.ensureCursorPosition();
-    } else {
-      this.hideCursorMarkers();
-    }
-    this.render();
-    if (this.cursorMode === "cursor") this.updateCursorAtX();
-    return t(cursorLabelKeys[this.cursorMode]);
-  }
-
-  getCursorModeLabel(): string {
-    return t(cursorLabelKeys[this.cursorMode]);
-  }
-
-  private renderEmpty() {
-    this.hideInspector();
-    this.titleEl.textContent = t("chart.waveformTitle");
-    this.badgesEl.innerHTML = `<span class="chart-meta">${escapeHtml(t("chart.waiting"))}</span>`;
-    this.chart.setOption({
-      backgroundColor: "#f7f8fa",
-      xAxis: { show: false },
-      yAxis: { show: false },
-      series: [],
-      graphic: {
-        type: "text",
-        left: "center",
-        top: "middle",
-        style: {
-          text: t("chart.emptyHint"),
-          fill: "#868686",
-          font: "12px Microsoft YaHei",
-        },
-      },
-    } satisfies EChartsOption, true);
+  protected renderEmpty() {
+    this.inspectorPanel.hide();
+    this.setChartMeta(t("chart.waveformTitle"), `<span class="chart-meta">${escapeHtml(t("chart.waiting"))}</span>`);
+    this.renderEmptyChart(t("chart.emptyHint"));
   }
 
   /** 渲染出错时的占位提示，避免界面停在异常状态。 */
   private renderRenderError(error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    this.hideInspector();
-    this.titleEl.textContent = t("chart.waveformTitle");
-    this.badgesEl.innerHTML = `<span class="chart-meta">${escapeHtml(t("chart.renderError"))}</span>`;
+    this.inspectorPanel.hide();
+    this.setChartMeta(t("chart.waveformTitle"), `<span class="chart-meta">${escapeHtml(t("chart.renderError"))}</span>`);
     this.chart.setOption({
       backgroundColor: "#f7f8fa",
       xAxis: { show: false },
@@ -325,7 +252,7 @@ export class WaveformChart {
     } satisfies EChartsOption, true);
   }
 
-  private render() {
+  protected render() {
     if (!this.dataset) return;
     try {
       this.renderChart();
@@ -337,13 +264,13 @@ export class WaveformChart {
     }
   }
 
-  /** 注册渲染后回调（叠加层用：获取绘图区几何并整体重绘）。返回取消函数。 */
+  /** 注册渲染后回调。 */
   onAfterRender(callback: () => void): () => void {
     this.renderCallbacks.onViewChange.add(callback);
     return () => this.renderCallbacks.onViewChange.delete(callback);
   }
 
-  /** 当前绘图区像素矩形 + 数据范围（供叠加层对齐 ECharts 坐标）。 */
+  /** 当前绘图区像素矩形 + 数据范围。 */
   getPlotGeometry() {
     if (!this.dataset) return null;
     const bounds = this.plotBounds();
@@ -365,6 +292,30 @@ export class WaveformChart {
     };
   }
 
+  /**
+   * 标记当前展示的是上一次成功运行的结果（本次运行失败时保留旧图）。
+   */
+  setStaleResult(value: boolean) {
+    if (this.staleResult === value) return;
+    this.staleResult = value;
+    if (this.dataset) this.renderBadges(this.dataset, this.getVisibleTraces());
+  }
+
+  private renderBadges(dataset: WaveformDataset, visibleTraces: WaveformTrace[]) {
+    const isMcScaffold = dataset.id === "mc-scaffold";
+    const badgeItems = isMcScaffold
+      ? [dataset.meta.sourcePlot ? escapeHtml(dataset.meta.sourcePlot) : "Monte Carlo"]
+      : [
+        labelForAnalysis(dataset.spiceCommandType),
+        dataset.command ? escapeHtml(dataset.command) : "",
+        t("chart.traceCount", visibleTraces.filter((trace) => !trace.name.startsWith("__")).length, dataset.traces.filter((trace) => !trace.name.startsWith("__")).length),
+        t("chart.pointCount", formatInteger(visibleTraces.reduce((sum, trace) => sum + trace.points.length, 0))),
+        dataset.meta.sweep?.incomplete ? escapeHtml(t("dc.incomplete")) : "",
+        this.staleResult ? escapeHtml(t("dc.previousResult")) : "",
+      ];
+    this.setChartMeta(dataset.title, `<span class="chart-meta">${badgeItems.filter(Boolean).join(" · ")}</span>`);
+  }
+
   private renderChart() {
     if (!this.dataset) return;
     if (this.cursorMode === "cursor") this.ensureCursorPosition();
@@ -374,18 +325,7 @@ export class WaveformChart {
     const yAxisRanges = this.getRenderableYAxisRanges(yAxes);
     const visibleColors = visibleTraces.map((trace, index) => this.colorForTrace(trace, index));
 
-    this.titleEl.textContent = dataset.title;
-    // MC scaffold：ECharts 只承载隐形极值线，分析类型/命令/曲线数徽标无意义，仅显示样本概况。
-    const isMcScaffold = dataset.id === "mc-scaffold";
-    const badgeItems = isMcScaffold
-      ? [dataset.meta.sourcePlot ? escapeHtml(dataset.meta.sourcePlot) : "Monte Carlo"]
-      : [
-        labelForAnalysis(dataset.spiceCommandType),
-        dataset.command ? escapeHtml(dataset.command) : "",
-        t("chart.traceCount", visibleTraces.filter((trace) => !trace.name.startsWith("__")).length, dataset.traces.filter((trace) => !trace.name.startsWith("__")).length),
-        t("chart.pointCount", formatInteger(visibleTraces.reduce((sum, trace) => sum + trace.points.length, 0))),
-      ];
-    this.badgesEl.innerHTML = `<span class="chart-meta">${badgeItems.filter(Boolean).join(" · ")}</span>`;
+    this.renderBadges(dataset, visibleTraces);
     this.el.title = this.cursorMode === "follow"
       ? t("chart.followHelp")
       : t("chart.cursorHelp");
@@ -419,7 +359,7 @@ export class WaveformChart {
         type: "scroll",
         itemWidth: 20,
         itemHeight: 12,
-        data: visibleTraces.filter((trace) => !trace.name.startsWith("__")).map((trace) => ({ name: trace.name, icon: TRACE_LEGEND_ICON })),
+        data: [...new Set(visibleTraces.filter((trace) => !trace.name.startsWith("__")).map((trace) => trace.name))].map((name) => ({ name, icon: CHART_LEGEND_ICON })),
         selected: Object.fromEntries(visibleTraces.map((trace) => [trace.name, !this.legendHiddenTraceIds.has(trace.id)])),
         textStyle: { fontSize: 12, color: "#333" },
       },
@@ -476,18 +416,17 @@ export class WaveformChart {
 
     this.chart.setOption(option, true);
     this.restoreCursorAfterRender();
-    // notMerge 重绘会清掉覆盖层 graphic，重建。
     this.scheduleFollowOverlay();
   }
 
   private restoreCursorAfterRender() {
     if (!this.dataset || this.cursorMode !== "cursor") {
-      this.hideInspector();
+      this.inspectorPanel.hide();
       return;
     }
     this.ensureCursorPosition();
     if (this.cursorX === null) return;
-    // 缩放后游标可能落到视野外，clamp 回视野再 snap。
+    // 游标区域限定。
     this.cursorX = this.snapXToSamples(clamp(this.cursorX, this.view.xMin, this.view.xMax));
     this.updateCursorAtX();
   }
@@ -557,7 +496,8 @@ export class WaveformChart {
     const axisIndex = Math.max(0, yAxes.findIndex((axis) => axis.id === trace.axisId));
     const showLine = this.displayMode !== "points";
     const rendered = this.renderTraceData(trace);
-    const showPoints = this.displayMode !== "line" && rendered.points.length <= 6000;
+    // 单点曲线（如双源 DC 每组仅一个点）必须显示符号，否则"仅线"模式下完全不可见。
+    const showPoints = (this.displayMode !== "line" && rendered.points.length <= 6000) || rendered.points.length === 1;
     const color = this.colorForTrace(trace, index);
     const highlighted = this.highlightedTraceIds?.has(trace.id) ?? false;
     const dimmed = Boolean(this.highlightedTraceIds?.size) && !highlighted;
@@ -572,7 +512,6 @@ export class WaveformChart {
       symbolSize: showPoints ? 3.5 : 6,
       smooth: false,
       sampling: undefined,
-      // 渲染点已按画布宽降采样，无需 large/progressive 分帧。
       lineStyle: {
         color,
         width: showLine ? highlighted ? 2.6 : 1.4 : 0,
@@ -580,7 +519,7 @@ export class WaveformChart {
       },
       itemStyle: { color, opacity: dimmed ? 0.24 : 1 },
       z: highlighted ? 12 : 2,
-      // 坐标轴 tooltip 可能同时强调全部 Monte Carlo 曲线，因此保持 hover 样式中性，
+      // 提示框可能同时强调全部 Monte Carlo 曲线，因此保持悬停样式中性，
       // 让样本表格高亮成为唯一的曲线淡化规则。
       emphasis: { disabled: true },
     };
@@ -588,7 +527,8 @@ export class WaveformChart {
 
   private buildTraceSeriesViewUpdate(trace: WaveformTrace) {
     const rendered = this.renderTraceData(trace);
-    const showPoints = this.displayMode !== "line" && rendered.points.length <= 6000;
+    // 单点曲线（如双源 DC 每组仅一个点）必须显示符号，否则"仅线"模式下完全不可见。
+    const showPoints = (this.displayMode !== "line" && rendered.points.length <= 6000) || rendered.points.length === 1;
     return {
       id: trace.id,
       data: rendered.points,
@@ -607,7 +547,7 @@ export class WaveformChart {
     return { points: rendered, sourceCount: points.length };
   }
 
-  /** trace 当前渲染点（渲染先于交互，未命中时回退原始点）。 */
+  /** 当前渲染点。 */
   private getRenderedPoints(trace: WaveformTrace): Array<[number, number]> {
     return this.renderedPointsCache.get(trace.id) ?? trace.points;
   }
@@ -642,7 +582,6 @@ export class WaveformChart {
     };
   }
 
-  /** MC：x 处全部样本插值值的 min/P50/max（画布圆点与统计 tooltip 同源）。 */
   private mcStatsAt(x: number): { min: number; p50: number; max: number } | null {
     const dataset = this.dataset;
     if (!dataset) return null;
@@ -700,7 +639,6 @@ export class WaveformChart {
 
   private formatTooltip(_params: Array<Record<string, any>>): string {
     if (!this.dataset) return "";
-    // 数值与覆盖层同源：都从 hoverX 出发，不用 ECharts 的 snap axisValue。
     const mouseX = this.hoverX;
     if (mouseX === null || !Number.isFinite(mouseX)) return "";
     const snap = this.displayMode !== "line";
@@ -731,7 +669,8 @@ export class WaveformChart {
         unit: trace.unit,
       });
     }
-    const visible = rows.filter((row) => row.value !== null);
+    // NaN 缺口点（DC 扫描无效点占位）不进入提示框读数行。
+    const visible = rows.filter((row) => row.value !== null && Number.isFinite(row.value));
     for (const row of visible) {
       html += `${row.marker}${escapeHtml(row.name)}: ${formatInspectionValue(row.value as number, row.unit)}<br/>`;
     }
@@ -792,7 +731,6 @@ export class WaveformChart {
       this.clearFollowOverlay();
       return;
     }
-    // 记录鼠标像素 x 作为覆盖层锚点，tooltip 数值同源。
     this.hoverPixelX = point.x;
     this.hoverX = this.xValueFromPixel(point.x);
     this.scheduleFollowOverlay();
@@ -865,13 +803,12 @@ export class WaveformChart {
       silent: true,
       z: CURSOR_GRAPHIC_Z,
       zlevel: OVERLAY_ZLEVEL,
-      // 合并更新按字段存在性取值，invisible 必须显式写。
       invisible: false,
       shape: { x1: linePixelX, y1: bounds.top, x2: linePixelX, y2: bounds.bottom },
       style: { stroke: "rgba(0,0,0,0.24)", lineWidth: 1, lineDash: [5, 4] },
     }];
     if (this.isMonteCarloDataset()) {
-      // MC 叠加图：竖线 + 该时刻 min/P50/max 三个交点圆点（与统计 tooltip 同源）。
+      // MC 叠加图：竖线 + 该时刻 min/P50/max 三个交点圆点。
       const mcStats = this.mcStatsAt(lineX);
       const mcYAxes = this.getRenderableAxes();
       const mcYRange = mcYAxes[0] ? this.view.y.get(mcYAxes[0].id) : null;
@@ -1142,11 +1079,13 @@ export class WaveformChart {
         .map((trace, index) => {
           let point: [number, number] | null = null;
           if (snap) {
-            point = nearestSeriesPoint(this.getRenderedPoints(trace), x);
+            const nearest = nearestSeriesPoint(this.getRenderedPoints(trace), x);
+            // NaN 缺口点（DC 扫描无效点占位）不画游标圆点。
+            if (nearest && Number.isFinite(nearest[1])) point = nearest;
           }
           else {
             const y = interpolateSeriesValue(this.getRenderedPoints(trace), x);
-            if (y !== null) point = [x, y];
+            if (y !== null && Number.isFinite(y)) point = [x, y];
           }
           return point === null ? null : {
             value: point,
@@ -1167,7 +1106,6 @@ export class WaveformChart {
     this.cancelScheduledCursorUpdate();
     this.cursorX = null;
     this.hideCursorGraphicLine();
-    this.hideInspector();
     this.clearFollowDots();
   }
 
@@ -1201,7 +1139,7 @@ export class WaveformChart {
       this.hideCursorGraphicLine();
       return;
     }
-    this.chart.setOption({ graphic: this.cursorGraphicElements(pixel, bounds) }, false);
+    this.cursorLineGraphics.draw({ pixel, top: bounds.top, bottom: bounds.bottom });
     this.updateInspector(pixel, bounds);
   }
 
@@ -1214,7 +1152,7 @@ export class WaveformChart {
    *  最近采样点在视野外时保持原 x。 */
   private snapXToSamples(x: number): number {
     if (this.displayMode === "line" || !this.dataset) return x;
-    // MC 叠加：吸附到 store 共享时间向量的最近采样点。
+    // MC 叠加：吸附到全量波形存储的共享时间向量的最近采样点。
     if (this.isMonteCarloDataset()) {
       const store = this.dataset.meta.waveformStore as {
         getSeries(traceName: string): Array<{ sampleIndex: number; time: Float64Array; values: Float32Array }>;
@@ -1251,67 +1189,28 @@ export class WaveformChart {
   }
 
   private hideCursorGraphicLine() {
-    this.chart.setOption({
-      graphic: [
-        hiddenLineGraphic("fixed-cursor-line"),
-        hiddenPolygonGraphic("fixed-cursor-handle"),
-      ],
-    }, false);
-    this.hideInspector();
+    this.cursorLineGraphics.hide();
+    this.inspectorPanel.hide();
   }
 
   private isCursorHandleHit(localX: number, localY: number): boolean {
     if (!this.dataset || this.cursorMode !== "cursor" || this.cursorX === null) return false;
     const pixel = normalizePixel(this.chart.convertToPixel({ xAxisIndex: 0 }, this.cursorX), 0);
     const bounds = this.plotBounds();
-    return Math.abs(localX - pixel) <= 11 && localY >= bounds.top - 16 && localY <= bounds.top + 8;
-  }
-
-  private cursorGraphicElements(pixel: number, bounds: ReturnType<WaveformChart["plotBounds"]>): any[] {
-    return [
-      {
-        id: "fixed-cursor-line",
-        type: "line",
-        silent: true,
-        z: CURSOR_GRAPHIC_Z,
-        zlevel: OVERLAY_ZLEVEL,
-        invisible: false,
-        shape: { x1: pixel, y1: bounds.top, x2: pixel, y2: bounds.bottom },
-        style: {
-          stroke: this.cursorMode === "cursor" ? "#d32029" : "rgba(0, 0, 0, 0.36)",
-          lineWidth: this.cursorMode === "cursor" ? 1.5 : 1,
-          lineDash: [5, 4],
-        },
-      },
-      {
-        id: "fixed-cursor-handle",
-        type: "polygon",
-        silent: true,
-        z: CURSOR_GRAPHIC_Z + 1,
-        zlevel: OVERLAY_ZLEVEL,
-        invisible: this.cursorMode !== "cursor",
-        shape: {
-          points: [
-            [pixel - 7, bounds.top - 12],
-            [pixel + 7, bounds.top - 12],
-            [pixel, bounds.top],
-          ],
-        },
-        style: { fill: "#d32029", stroke: "#ffffff", lineWidth: 1 },
-      },
-    ];
+    return this.cursorLineGraphics.isHandleHit(localX, localY, pixel, bounds.top);
   }
 
   private cursorValueItems(): Array<{ traceId: string; color: string; text: string }> {
     if (!this.dataset || this.cursorX === null) return [];
     const rows: Array<{ traceId: string; color: string; text: string }> = [];
-    // 线模式：插值连续；点/线点模式：snap 最近数据点（离散语义，与 tooltip 一致）。
+    // 仅线：插值连续；点/线点：吸附最近数据点（离散语义，与提示框一致）。
     const valueAt = this.displayMode === "line"
       ? (trace: WaveformTrace) => interpolateSeriesValue(this.getRenderedPoints(trace), this.cursorX as number)
       : (trace: WaveformTrace) => nearestSeriesValue(this.getRenderedPoints(trace), this.cursorX as number);
     for (const [index, trace] of this.getInspectionTraces().slice(0, CURSOR_LABEL_MAX_ROWS).entries()) {
       const y = valueAt(trace);
-      if (y === null) continue;
+      // NaN 缺口点（DC 扫描无效点占位）不产生读数行。
+      if (y === null || !Number.isFinite(y)) continue;
       rows.push({
         traceId: trace.id,
         color: this.colorForTrace(trace, index),
@@ -1321,116 +1220,39 @@ export class WaveformChart {
     return rows;
   }
 
-  private installInspectorEvents() {
-    for (const eventName of ["mousedown", "mouseup", "mousemove", "click", "dblclick", "wheel"]) {
-      this.inspectorEl.addEventListener(eventName, (event) => event.stopPropagation());
-    }
-    this.inspectorInputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        this.commitInspectorX();
-        this.inspectorInputEl.select();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        if (this.cursorX !== null) this.setInspectorInputValue(formatWaveformValue(this.cursorX / this.inspectorXFactor));
-        this.inspectorInputEl.blur();
-      }
-    });
-    this.inspectorInputEl.addEventListener("focus", () => {
-      requestAnimationFrame(() => this.inspectorInputEl.select());
-    });
-    this.inspectorInputEl.addEventListener("click", () => this.inspectorInputEl.select());
-    this.inspectorInputEl.addEventListener("input", () => this.updateInspectorInputWidth());
-    this.inspectorInputEl.addEventListener("change", () => this.commitInspectorX());
-  }
-
-  private setInspectorInputValue(value: string) {
-    this.inspectorInputEl.value = value;
-    this.updateInspectorInputWidth();
-  }
-
-  private updateInspectorInputWidth() {
-    const characterCount = Math.max(1, this.inspectorInputEl.value.length);
-    this.inspectorInputEl.style.width = `calc(${characterCount}ch + 6px)`;
-  }
-
   private updateInspector(pixel: number, bounds: ReturnType<WaveformChart["plotBounds"]>) {
     if (!this.dataset || this.cursorMode !== "cursor" || this.cursorX === null) {
-      this.hideInspector();
+      this.inspectorPanel.hide();
       return;
     }
-    const rows = this.cursorValueItems();
     const displayUnit = axisDisplayUnit(this.dataset.xAxis.unit, this.view.xMin, this.view.xMax, this.cursorX);
-    const unitChanged = this.inspectorXFactor !== displayUnit.factor;
-    this.inspectorXFactor = displayUnit.factor;
-    this.inspectorAxisNameEl.textContent = `${this.dataset.xAxis.name}:`;
-    this.inspectorUnitEl.textContent = displayUnit.label;
     const inputBounds = this.getDatasetXBounds();
-    this.inspectorInputEl.min = formatWaveformValue(inputBounds.min / displayUnit.factor);
-    this.inspectorInputEl.max = formatWaveformValue(inputBounds.max / displayUnit.factor);
-    this.inspectorInputEl.title = t(
-      "chart.inspectorInputTitle",
-      this.dataset.xAxis.name,
-      displayUnit.label || t("chart.inspectorUnitFallback"),
-    );
-    if (document.activeElement !== this.inspectorInputEl || unitChanged) {
-      this.setInspectorInputValue(formatWaveformValue(this.cursorX / displayUnit.factor));
-    }
-    this.inspectorInputEl.removeAttribute("aria-invalid");
-
-    const rowStructureChanged = rows.length !== this.inspectorRowElements.length
-      || rows.some((row, index) => row.traceId !== this.inspectorRowElements[index]?.traceId);
-    if (rowStructureChanged) {
-      const fragment = document.createDocumentFragment();
-      this.inspectorRowElements = rows.map((row) => {
-        const rowEl = document.createElement("div");
-        rowEl.className = "waveform-inspector-row";
-        const swatch = document.createElement("span");
-        swatch.className = "waveform-inspector-swatch";
-        const value = document.createElement("span");
-        value.className = "waveform-inspector-value";
-        rowEl.append(swatch, value);
-        fragment.appendChild(rowEl);
-        return { traceId: row.traceId, row: rowEl, swatch, value };
-      });
-      this.inspectorRowsEl.replaceChildren(fragment);
-    }
-    rows.forEach((row, index) => {
-      const elements = this.inspectorRowElements[index];
-      elements.swatch.style.backgroundColor = row.color;
-      elements.value.textContent = row.text;
+    this.inspectorPanel.update({
+      axisName: this.dataset.xAxis.name,
+      inputTitle: t(
+        "chart.inspectorInputTitle",
+        this.dataset.xAxis.name,
+        displayUnit.label || t("chart.inspectorUnitFallback"),
+      ),
+      unit: { label: displayUnit.label, factor: displayUnit.factor },
+      bounds: { min: inputBounds.min, max: inputBounds.max, isLog: inputBounds.isLog },
+      x: this.cursorX,
+      rows: this.cursorValueItems().map((row) => ({ id: row.traceId, color: row.color, text: row.text })),
+      position: {
+        pixel,
+        boundsLeft: bounds.left,
+        boundsRight: bounds.right,
+        boundsTop: bounds.top,
+        boundsBottom: bounds.bottom,
+      },
     });
-    this.inspectorEl.classList.remove("hidden");
-
-    const panelWidth = this.inspectorEl.offsetWidth || 228;
-    const panelHeight = this.inspectorEl.offsetHeight || 44;
-    const gap = 10;
-    const left = pixel + panelWidth + gap > bounds.right
-      ? Math.max(bounds.left + 6, pixel - panelWidth - gap)
-      : Math.min(bounds.right - panelWidth, Math.max(bounds.left + 6, pixel + gap));
-    const top = Math.min(bounds.top + 8, Math.max(bounds.top + 8, bounds.bottom - panelHeight - 6));
-    this.inspectorEl.style.left = `${left}px`;
-    this.inspectorEl.style.top = `${top}px`;
   }
 
-  private hideInspector() {
-    this.inspectorEl.classList.add("hidden");
-  }
-
-  private commitInspectorX() {
+  private commitInspectorX(target: number) {
     if (!this.dataset || this.cursorMode !== "cursor") return;
-    const raw = this.inspectorInputEl.value.trim();
-    const parsedDisplayValue = raw ? Number(raw) : NaN;
-    const parsed = parsedDisplayValue * this.inspectorXFactor;
     const bounds = this.getDatasetXBounds();
-    if (!Number.isFinite(parsed) || (bounds.isLog && parsed <= 0)) {
-      this.inspectorInputEl.setAttribute("aria-invalid", "true");
-      return;
-    }
-    const target = clamp(parsed, bounds.min, bounds.max);
-    this.inspectorInputEl.removeAttribute("aria-invalid");
     this.cursorX = this.snapXToSamples(target);
-    this.setInspectorInputValue(formatWaveformValue(this.cursorX / this.inspectorXFactor));
+    this.inspectorPanel.setValue(this.cursorX);
     this.centerViewAtX(target, bounds);
     this.applyView();
     requestAnimationFrame(() => this.updateCursorAtX());
@@ -1477,8 +1299,6 @@ export class WaveformChart {
       this.cursorX = this.snapXToSamples(clamp(this.cursorX, this.view.xMin, this.view.xMax));
       this.updateCursorAtX();
     }
-    // 视野变了但鼠标未必动，重画覆盖层。
-    // 缩放/平移不走 render()，必须在这里通知叠加画布同步几何并重绘。
     this.renderCallbacks.onViewChange.forEach((callback) => callback());
     this.scheduleFollowOverlay();
   }
@@ -1495,7 +1315,7 @@ export class WaveformChart {
   }
 
   private getInspectionTraces(): WaveformTrace[] {
-    // "__" 开头的是隐形 scaffold 线（只用于撑轴范围），不得进入任何数值读出。
+    // "__" 开头的是隐形底图线（只用于撑出坐标范围），不得进入任何数值读出。
     const traces = this.getDisplayedTraces().filter((trace) => !trace.name.startsWith("__"));
     if (!this.highlightedTraceIds?.size) return traces;
     return traces.filter((trace) => this.highlightedTraceIds?.has(trace.id));
@@ -1515,7 +1335,7 @@ export class WaveformChart {
       return;
     }
     this.hideCursorMarkers();
-    // legend 变化后圆点要重算。
+    // 图例开关变化后圆点要重算。
     this.scheduleFollowOverlay();
   }
 
@@ -1650,26 +1470,6 @@ export class WaveformChart {
   }
 }
 
-
-function hiddenLineGraphic(id: string): any {
-  return {
-    id,
-    type: "line",
-    invisible: true,
-    silent: true,
-    shape: { x1: 0, y1: 0, x2: 0, y2: 0 },
-  };
-}
-
-function hiddenPolygonGraphic(id: string): any {
-  return {
-    id,
-    type: "polygon",
-    invisible: true,
-    silent: true,
-    shape: { points: [[0, 0], [0, 0], [0, 0]] },
-  };
-}
 
 function normalizePixel(pixel: number | number[], index: number): number {
   return Array.isArray(pixel) ? Number(pixel[index]) : Number(pixel);

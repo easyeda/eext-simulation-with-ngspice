@@ -1,5 +1,5 @@
-import type { SpiceCommandType } from "../shared/analysis-types";
-import { getNumberLocale, t } from "../shared/i18n";
+import type { SpiceCommandType } from "../../shared/analysis-types";
+import { getNumberLocale, t } from "../../shared/i18n";
 
 export function escapeHtml(value: string): string {
 	return value.replace(/[&<>"']/g, (character) => ({

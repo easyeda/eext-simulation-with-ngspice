@@ -1,5 +1,16 @@
 import { detectSpiceCommandType, findAnalysisCommand, inferAxisId, inferUnit } from "../../shared/netlist";
 import type { AnalysisType, SpiceCommandType } from "../../shared/analysis-types";
+import {
+	dcSourceKindFromScaleName,
+	dcUnitFromScaleName,
+	formatEngineeringValue,
+	parseDcSweepDirective,
+	unitForSourceKind,
+	type DcSweepMeta,
+	type DcSweepParseResult,
+	type DcSweepPlan,
+	type DcSweepSourceInfo,
+} from "../../shared/dc-sweep";
 import type { WaveformAxis, WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import type { NgspiceRawEventNode, NgspiceRawPlot, NgspiceRawResult, NgspiceRawVector } from "./raw-result";
 import type { ProbeRegistrationTarget } from "./session";
@@ -20,9 +31,10 @@ export function normalizeNgspiceRawResult(
 	options: NormalizeRawResultOptions = {},
 ): WaveformDataset[] {
 	const commandType = detectSpiceCommandType(netlist);
+	const dcSweep = commandType === "dc" ? parseDcSweepDirective(netlist) : null;
 	const plots = selectCurrentPlots(result);
 	return plots.flatMap((plot, index) => {
-		const dataset = normalizePlot(plot, result.events, netlist, commandType, options, index);
+		const dataset = normalizePlot(plot, result.events, netlist, commandType, options, index, dcSweep);
 		return dataset ? [dataset] : [];
 	});
 }
@@ -43,16 +55,21 @@ function normalizePlot(
 	commandType: SpiceCommandType,
 	options: NormalizeRawResultOptions,
 	index: number,
+	dcSweep: DcSweepParseResult | null,
 ): WaveformDataset | null {
 	const scale = findScaleVector(plot.vectors, commandType);
 	if (!scale) return null;
 	const wanted = targetNames(options.targets ?? []);
 	const sourceVectors = plot.vectors.filter((vector) => vector !== scale && isRenderableVector(vector) && matchesTargets(vector, wanted));
-	const traces = [
+	let traces = [
 		...sourceVectors.flatMap((vector) => vectorToTraces(vector, scale, commandType)),
 		...events.filter((event) => matchesEventTargets(event, options.targets ?? [])).flatMap((event) => eventToTraces(event, scale)),
 	];
 	if (!traces.length) return null;
+
+	const sweepMeta = commandType === "dc" ? buildDcSweepPresentation(traces, scale, dcSweep) : null;
+	if (sweepMeta) traces = sweepMeta.traces;
+
 	const productAnalysisType = options.productAnalysisType ?? commandType;
 	return {
 		id: slugify(`${productAnalysisType}-${plot.name}-${index + 1}`),
@@ -60,7 +77,7 @@ function normalizePlot(
 		spiceCommandType: commandType,
 		title: commandType,
 		command: findAnalysisCommand(netlist),
-		xAxis: xAxisFor(commandType),
+		xAxis: xAxisFor(commandType, scale.name),
 		yAxes: axesFor(traces),
 		traces,
 		meta: {
@@ -68,8 +85,129 @@ function normalizePlot(
 			sampleCount: traces.reduce((sum, trace) => sum + trace.points.length, 0),
 			generatedAt: Date.now(),
 			sourcePlot: plot.name,
+			...(sweepMeta ? { sweep: sweepMeta.meta } : {}),
 		},
 	};
+}
+
+/**
+ * DC 扫描展示处理（仅 dc 调用）：
+ * - 双源扫描：按解析出的内层点数把首尾相接的数据切成每组一条 trace，图例标注源2取值；
+ *   点数对不上时保持整条数据并置 groupingOk=false（由展示层提示解析失败，不猜标签）。
+ * - 反向扫描的降序点按 x 升序重排，使下游窗口裁剪/游标二分管线无需感知方向。
+ * - 数据中存在非有限值时标记 incomplete（渲染断线 + 提示结果不完整）。
+ */
+function buildDcSweepPresentation(
+	traces: WaveformTrace[],
+	scale: NgspiceRawVector,
+	dcSweep: DcSweepParseResult | null,
+): { traces: WaveformTrace[]; meta: DcSweepMeta } {
+	const plan: DcSweepPlan | null = dcSweep?.plan ?? null;
+	const source1: DcSweepSourceInfo = plan
+		? { name: plan.source1.name, kind: plan.source1.kind, unit: dcUnitFromScaleName(scale.name) }
+		: { name: "", kind: dcSourceKindFromScaleName(scale.name), unit: dcUnitFromScaleName(scale.name) };
+	const source2: DcSweepSourceInfo | null = plan?.source2
+		? { name: plan.source2.name, kind: plan.source2.kind, unit: unitForSourceKind(plan.source2.kind) }
+		: (dcSweep?.source2Unparsable ? { name: "", kind: "other", unit: "" } : null);
+
+	let groupingOk = true;
+	let nextTraces = traces;
+	if (plan) {
+		nextTraces = stripDcSweepEventDumpPoints(nextTraces, plan);
+	}
+	if (plan?.source2 && source2) {
+		const source2Spec = plan.source2;
+		const expectedTotal = plan.innerCount * plan.groupCount;
+		const splittable = expectedTotal > 0
+			&& nextTraces.some((trace) => trace.axisId !== DIGITAL_AXIS_ID && trace.points.length === expectedTotal);
+		nextTraces = splittable
+			? nextTraces.flatMap((trace) => splitDcTraceIntoGroups(trace, plan, source2Spec, source2))
+			: nextTraces;
+		groupingOk = splittable;
+	}
+	// 反向扫描（如 1m → -1m、步进 -100u）返回降序点；重排为升序。
+	// 数字信号曲线是阶梯画法，依赖事件顺序，不重排。
+	nextTraces = nextTraces.map((trace) => trace.axisId === DIGITAL_AXIS_ID
+		? trace
+		: { ...trace, points: sortPointsByX(trace.points) });
+	const incomplete = nextTraces.some((trace) => trace.points.some((point) => !Number.isFinite(point[1])));
+	return {
+		traces: nextTraces,
+		meta: {
+			source1,
+			source2,
+			innerCount: plan?.innerCount ?? 0,
+			groupCount: plan?.groupCount ?? 1,
+			groupingOk,
+			incomplete,
+		},
+	};
+}
+
+/**
+ * 剔除 ngspice wantevtdata 模式下每个扫描段开头的额外 dump 点。
+ * WASM wrapper 初始化 ngSpice_Init_Evt（数字探针事件）后 wantevtdata=TRUE，
+ * dctrcurv.c 的 XSPICE 分支会在 firstTime 时额外 CKTdump(ckt, 0.0, plot)：
+ * 每个分组段（含单源整条扫描）头部多一个 x=0.0 的假点——起点为 0 时表现为
+ * 首点重复（0,0,...），起点非零时表现为横轴范围外多出 (0, y) 假点。
+ * 仅当总点数恰为 (N1+1)×组数 且各段首点 x 精确为 0 时剔除，否则保持原样。
+ */
+function stripDcSweepEventDumpPoints(traces: WaveformTrace[], plan: DcSweepPlan): WaveformTrace[] {
+	const segmentLength = plan.innerCount + 1;
+	if (segmentLength <= 1) return traces;
+	const expectedTotal = segmentLength * plan.groupCount;
+	const candidates = traces.filter((trace) => trace.axisId !== DIGITAL_AXIS_ID);
+	if (!candidates.length || !candidates.every((trace) => trace.points.length === expectedTotal)) {
+		return traces;
+	}
+	const dropIndices = new Set<number>();
+	for (let groupIndex = 0; groupIndex < plan.groupCount; groupIndex += 1) {
+		const index = groupIndex * segmentLength;
+		if (candidates.every((trace) => trace.points[index][0] === 0)) dropIndices.add(index);
+	}
+	if (!dropIndices.size) return traces;
+	return traces.map((trace) => trace.axisId === DIGITAL_AXIS_ID
+		? trace
+		: { ...trace, points: trace.points.filter((_, index) => !dropIndices.has(index)) });
+}
+
+/**
+ * 双源 DC：第 k 组 = 数据 [k*N1, (k+1)*N1)，源2值 = start2 + k*step2（支持负步进、单点组）。
+ * 曲线名保持测量对象原名（图例按对象聚合），组信息放 meta.groupIndex/groupLabel，
+ * 由底部"扫描分组"表格与高亮联动承载源2维度。
+ */
+function splitDcTraceIntoGroups(
+	trace: WaveformTrace,
+	plan: DcSweepPlan,
+	source2Spec: NonNullable<DcSweepPlan["source2"]>,
+	source2: DcSweepSourceInfo,
+): WaveformTrace[] {
+	const groups: WaveformTrace[] = [];
+	for (let groupIndex = 0; groupIndex < plan.groupCount; groupIndex += 1) {
+		const chunk = trace.points.slice(groupIndex * plan.innerCount, (groupIndex + 1) * plan.innerCount);
+		if (!chunk.length) continue;
+		const source2Value = source2Spec.start + groupIndex * source2Spec.step;
+		const groupLabel = `${source2.name}=${formatEngineeringValue(source2Value, source2.unit)}`;
+		groups.push({
+			...trace,
+			id: `${trace.id}-g${groupIndex + 1}`,
+			points: sortPointsByX(chunk),
+			meta: { ...trace.meta, groupIndex, groupLabel },
+		});
+	}
+	return groups.length ? groups : [trace];
+}
+
+/** 单调扫描点：升序时原样返回，降序（反向扫描）时按 x 升序重排。 */
+function sortPointsByX(points: Array<[number, number]>): Array<[number, number]> {
+	let ascending = true;
+	for (let index = 1; index < points.length; index += 1) {
+		if (points[index][0] < points[index - 1][0]) {
+			ascending = false;
+			break;
+		}
+	}
+	return ascending ? points : [...points].sort((a, b) => a[0] - b[0]);
 }
 
 function matchesEventTargets(event: NgspiceRawEventNode, targets: ProbeRegistrationTarget[]): boolean {
@@ -205,10 +343,17 @@ function vectorToTraces(vector: NgspiceRawVector, scale: NgspiceRawVector, type:
 
 	const axisId = vector.vectorType === VECTOR_CURRENT ? "current" : inferAxisId(displayName);
 	const points: Array<[number, number]> = [];
+	// DC：无效点保留为 NaN 占位——渲染在缺口处断线，统计/游标按非有限值跳过。
+	const keepGaps = type === "dc";
 	for (let index = 0; index < Math.min(scale.real.length, vector.real.length); index += 1) {
 		const x = scale.real[index];
 		const y = vector.real[index];
-		if (x !== null && y !== null) points.push([x, y]);
+		if (x === null) continue;
+		if (y === null) {
+			if (keepGaps) points.push([x, Number.NaN]);
+			continue;
+		}
+		points.push([x, y]);
 	}
 	if (!points.length) return [];
 	return [{
@@ -226,9 +371,10 @@ function displayVectorName(vector: NgspiceRawVector): string {
 	return /^v\(/i.test(name) ? name : `v(${name})`;
 }
 
-function xAxisFor(type: SpiceCommandType): WaveformAxis {
+function xAxisFor(type: SpiceCommandType, scaleName = ""): WaveformAxis {
 	if (type === "ac") return { id: "frequency", name: "Frequency", unit: "Hz", scale: "log" };
-	if (type === "dc") return { id: "sweep", name: "Sweep", unit: "V", scale: "linear" };
+	// DC 横轴单位按扫描源类别：电流源扫描(i-sweep)为 A，温度扫描为 °C，其余为 V。
+	if (type === "dc") return { id: "sweep", name: "Sweep", unit: dcUnitFromScaleName(scaleName), scale: "linear" };
 	return { id: "time", name: "Time", unit: "s", scale: "linear" };
 }
 

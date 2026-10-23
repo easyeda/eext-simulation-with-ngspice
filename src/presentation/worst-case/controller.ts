@@ -3,11 +3,12 @@ import type {
 	AnalysisTraceChoice,
 	AnalysisTraceChoiceController,
 } from "../analysis-presentation";
-import { escapeHtml, formatNumber, normalizeMeasurementId } from "../format";
+import { escapeHtml, formatNumber, normalizeMeasurementId } from "../utils/format";
+import { mountDataTable } from "../components/data-table";
 import { formatAssignments, worstCaseRunLabel } from "./format";
 import { t } from "../../shared/i18n";
 import type { ProbeTarget } from "../../shared/probe";
-import { downloadTextFile } from "../download";
+import { downloadTextFile } from "../utils/download";
 import { buildWorstCaseOverlayDataset, buildWorstCaseProbeOptions, type WorstCaseProbeOption } from "../../features/worst-case/view-model";
 import { sortWorstCaseRuns, worstCaseResultToCsv } from "../../features/worst-case/report";
 import type { WorstCaseObjective, WorstCaseResult } from "../../features/worst-case/types";
@@ -138,11 +139,22 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 			{ id: "worst-low", label: t("wca.worstLow"), value: result.summary.worstLowValue, delta: result.summary.lowDelta, percent: result.summary.lowDeltaPercent },
 			{ id: "worst-high", label: t("wca.worstHigh"), value: result.summary.worstHighValue, delta: result.summary.highDelta, percent: result.summary.highDeltaPercent },
 		];
-		this.summaryTable.innerHTML = `<table class="mc-table wc-table">
-			<thead><tr><th>${escapeHtml(t("wca.corner"))}</th><th>${escapeHtml(result.objective.label)}</th><th>${escapeHtml(t("wca.delta"))}</th><th>${escapeHtml(t("wca.deltaPercent"))}</th></tr></thead>
-			<tbody>${rows.map((row) => `<tr class="wc-run-row ${this.highlightedRunId === row.id ? "active" : ""}" data-run-id="${row.id}"><td>${escapeHtml(row.label)}</td><td>${formatNumber(row.value)} ${escapeHtml(result.objective.unit || "")}</td><td>${formatNumber(row.delta)}</td><td>${row.percent === undefined ? "--" : `${formatNumber(row.percent)}%`}</td></tr>`).join("")}</tbody>
-		</table>`;
-		this.installRunHandlers(this.summaryTable);
+		mountDataTable(this.summaryTable, {
+			columns: [t("wca.corner"), result.objective.label, t("wca.delta"), t("wca.deltaPercent")],
+			rows: rows.map((row) => ({
+				id: row.id,
+				className: "wc-run-row",
+				active: this.highlightedRunId === row.id,
+				cells: [
+					row.label,
+					`${formatNumber(row.value)}${result.objective.unit ? ` ${result.objective.unit}` : ""}`,
+					formatNumber(row.delta),
+					row.percent === undefined ? "--" : `${formatNumber(row.percent)}%`,
+				],
+			})),
+			tableClassName: "wc-table",
+			onRowActivate: (runId) => this.highlightRun(runId),
+		});
 	}
 
 	private renderImpact(result: WorstCaseResult): void {
@@ -151,32 +163,59 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 			return;
 		}
 		const sorted = [...result.parameterImpacts].sort((a, b) => b.impact - a.impact);
-		const unitSuffix = result.objective.unit ? ` ${escapeHtml(result.objective.unit)}` : "";
+		const unitSuffix = result.objective.unit ? ` ${result.objective.unit}` : "";
 		const objectiveName = result.objective.label.replace(/\s+at\s+.*$/i, "").trim();
-		const objectiveSuffix = objectiveName ? ` (${escapeHtml(objectiveName)})` : "";
+		const objectiveSuffix = objectiveName ? ` (${objectiveName})` : "";
 		const formatSelection = (selection: "min" | "max" | "nominal", item: { minValue: number; maxValue: number; nominalValue: number }): string => {
 			if (selection === "min") return `MIN=${formatNumber(item.minValue)}`;
 			if (selection === "max") return `MAX=${formatNumber(item.maxValue)}`;
 			return `NOMINAL=${formatNumber(item.nominalValue)}`;
 		};
-		this.impactTable.innerHTML = `<table class="mc-table wc-table">
-			<thead><tr><th>${escapeHtml(t("wca.parameter"))}</th><th>${escapeHtml(t("wca.objectiveAtMin"))}${objectiveSuffix}</th><th>${escapeHtml(t("wca.objectiveAtMax"))}${objectiveSuffix}</th><th>${escapeHtml(t("wca.lowSelection"))}</th><th>${escapeHtml(t("wca.highSelection"))}</th><th>${escapeHtml(t("wca.impact"))}</th></tr></thead>
-			<tbody>${sorted.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${formatNumber(item.objectiveAtMin)}${unitSuffix}</td><td>${formatNumber(item.objectiveAtMax)}${unitSuffix}</td><td>${escapeHtml(formatSelection(item.lowSelection, item))}</td><td>${escapeHtml(formatSelection(item.highSelection, item))}</td><td>${formatNumber(item.impact)}</td></tr>`).join("")}</tbody>
-		</table>`;
+		mountDataTable(this.impactTable, {
+			columns: [
+				t("wca.parameter"),
+				`${t("wca.objectiveAtMin")}${objectiveSuffix}`,
+				`${t("wca.objectiveAtMax")}${objectiveSuffix}`,
+				t("wca.lowSelection"),
+				t("wca.highSelection"),
+				t("wca.impact"),
+			],
+			rows: sorted.map((item) => ({
+				cells: [
+					item.label,
+					`${formatNumber(item.objectiveAtMin)}${unitSuffix}`,
+					`${formatNumber(item.objectiveAtMax)}${unitSuffix}`,
+					formatSelection(item.lowSelection, item),
+					formatSelection(item.highSelection, item),
+					formatNumber(item.impact),
+				],
+			})),
+			tableClassName: "wc-table",
+		});
 	}
 
 	private renderCases(result: WorstCaseResult): void {
 		const sortedRuns = sortWorstCaseRuns(result.runs);
-		this.casesTable.innerHTML = `<table class="mc-table wc-table">
-			<thead><tr><th>${escapeHtml(t("wca.case"))}</th><th>${escapeHtml(t("table.status"))}</th><th>${escapeHtml(result.objective.label)}</th><th>${escapeHtml(t("wca.assignments"))}</th><th>${escapeHtml(t("table.error"))}</th></tr></thead>
-			<tbody>${sortedRuns.map((run) => {
+		mountDataTable(this.casesTable, {
+			columns: [t("wca.case"), t("table.status"), result.objective.label, t("wca.assignments"), t("table.error")],
+			rows: sortedRuns.map((run) => {
 				const objective = run.measurements.find((measurement) => measurement.id === normalizeMeasurementId(result.objective.measurementId));
 				const finalRun = run.kind === "nominal" || run.kind === "worst-low" || run.kind === "worst-high";
-				const objectiveValue = objective ? `${formatNumber(objective.value)}${objective.unit ? ` ${escapeHtml(objective.unit)}` : ""}` : "-";
-				return `<tr class="${finalRun ? "wc-run-row" : ""} ${this.highlightedRunId === run.id ? "active" : ""}" ${finalRun ? `data-run-id="${escapeHtml(run.id)}"` : ""}><td>${escapeHtml(worstCaseRunLabel(run.kind, run.parameterId))}</td><td>${run.ok ? "OK" : escapeHtml(t("table.failed"))}</td><td>${objectiveValue}</td><td class="wc-assignments" title="${escapeHtml(JSON.stringify(run.assignments))}">${escapeHtml(formatAssignments(run.assignments))}</td><td>${escapeHtml(run.error || "")}</td></tr>`;
-			}).join("")}</tbody>
-		</table>`;
-		this.installRunHandlers(this.casesTable);
+				const objectiveValue = objective ? `${formatNumber(objective.value)}${objective.unit ? ` ${objective.unit}` : ""}` : "-";
+				return {
+					...(finalRun ? { id: run.id, className: "wc-run-row", active: this.highlightedRunId === run.id } : {}),
+					cells: [
+						worstCaseRunLabel(run.kind, run.parameterId),
+						run.ok ? "OK" : t("table.failed"),
+						objectiveValue,
+						{ text: formatAssignments(run.assignments), className: "wc-assignments", title: JSON.stringify(run.assignments) },
+						run.error || "",
+					],
+				};
+			}),
+			tableClassName: "wc-table",
+			onRowActivate: (runId) => this.highlightRun(runId),
+		});
 	}
 
 	private renderWaveforms(result: WorstCaseResult): void {
@@ -189,12 +228,6 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 		this.activeProbeId = this.probeOptions.some((option) => option.id === this.activeProbeId) ? this.activeProbeId : this.probeOptions[0].id;
 		this.host.setDataset(buildWorstCaseOverlayDataset(result, this.probeOptions, this.activeProbeId));
 		this.host.setHighlightedTraceIds(null);
-	}
-
-	private installRunHandlers(container: HTMLElement): void {
-		container.querySelectorAll<HTMLTableRowElement>(".wc-run-row[data-run-id]").forEach((row) => {
-			row.addEventListener("click", () => this.highlightRun(row.dataset.runId || ""));
-		});
 	}
 
 	private highlightRun(runId: string): void {

@@ -1,10 +1,13 @@
 import type { SimulationResult, WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import { t } from "../../shared/i18n";
 import type { AnalysisOverlayHost, AnalysisTraceChoiceController } from "../analysis-presentation";
-import { downloadTextFile, exportWaveformDatasets } from "../download";
-import { analysisTitle, escapeHtml, formatInteger } from "../format";
+import { downloadTextFile } from "../utils/download";
+import { exportWaveformDatasets } from "./download";
+import { analysisTitle, escapeHtml, formatInteger, formatNumber } from "../utils/format";
 import { filterAnalogResult } from "../../features/logic/logic-data";
 import { traceColorAt, WaveformChart } from "./chart";
+import { extent } from "./series-data";
+import { mountDataTable, type DataTableRow } from "../components/data-table";
 
 export interface WaveformControllerElements {
 	resultTabs: HTMLElement;
@@ -25,6 +28,8 @@ export interface WaveformControllerElements {
 	invertSelectionButton: HTMLButtonElement;
 	applySelectionButton: HTMLButtonElement;
 	cancelSelectionButton: HTMLButtonElement;
+	dcGroupsTab: HTMLButtonElement;
+	dcGroupsTable: HTMLElement;
 }
 
 export interface WaveformControllerDependencies {
@@ -32,6 +37,8 @@ export interface WaveformControllerDependencies {
 	appendLog: (message: string) => void;
 	resizeCharts: () => void;
 	exportBaseName: (result: SimulationResult) => string;
+	/** 可选。双源 DC 结果就绪时激活底部"扫描分组"面板。 */
+	activateDcGroupsPanel?: () => void;
 }
 
 /** 统一管理标准波形、分析叠加波形、曲线选择和波形导出。 */
@@ -42,6 +49,10 @@ export class WaveformController implements AnalysisOverlayHost {
 	private dialogDataset: WaveformDataset | null = null;
 	private dialogSelectedTraceIds = new Set<string>();
 	private running = false;
+	/** 上一次已输出过 DC 扫描问题日志的结果标识（恢复旧结果时避免重复提示）。 */
+	private lastDcIssueKey = "";
+	/** 双源 DC 当前高亮的分组号（0 起）；null = 未高亮。 */
+	private selectedGroupIndex: number | null = null;
 
 	constructor(
 		private readonly chart: WaveformChart,
@@ -74,26 +85,36 @@ export class WaveformController implements AnalysisOverlayHost {
 	}
 
 	present(result: SimulationResult): void {
-		// 波形图只显示模拟 trace（数字 trace 归逻辑分析图）。
+		// 波形图只显示模拟信号曲线（数字信号曲线归逻辑分析图）。
 		this.result = localizeSimulationResult(filterAnalogResult(result));
+		this.chart.setStaleResult(false);
 		this.traceSelection = new Map();
 		for (const dataset of this.result.datasets) {
 			this.traceSelection.set(dataset.id, this.defaultTraceSelection(dataset, this.result));
 		}
 		this.renderResultTabs();
 		this.activateDataset(this.result.activeDatasetId || this.result.datasets[0]?.id || "");
+		this.reportDcSweepIssues();
+		if (this.dcGroupDataset()) this.dependencies.activateDcGroupsPanel?.();
 	}
 
 	clear(): void {
 		this.result = null;
 		this.activeDatasetId = null;
 		this.traceSelection = new Map();
+		this.selectedGroupIndex = null;
 		this.elements.resultTabs.innerHTML = "";
 		this.elements.resultTabs.classList.add("hidden");
 		this.closeTraceDialog();
 		this.chart.setDataset(null);
 		this.chart.setHighlightedTraceIds(null);
+		this.chart.setStaleResult(false);
+		this.hideDcGroupsPanel();
 		this.updateExportState();
+	}
+
+	markStaleResult(): void {
+		this.chart.setStaleResult(true);
 	}
 
 	setDataset(dataset: WaveformDataset | null, opts?: { keepView?: boolean }): void {
@@ -151,8 +172,13 @@ export class WaveformController implements AnalysisOverlayHost {
 
 	refreshLocale(localizeTitles: boolean): void {
 		if (localizeTitles && this.result) {
-			for (const dataset of this.result.datasets) dataset.title = analysisTitle(dataset.spiceCommandType);
+			for (const dataset of this.result.datasets) {
+				dataset.title = analysisTitle(dataset.spiceCommandType);
+				// DC 扫描横轴标题按当前语言重排（结果随新语言重新渲染）。
+				applyDcSweepAxisTitle(dataset);
+			}
 		}
+		this.renderDcGroupsPanel();
 		this.chart.refreshLocale();
 		this.elements.displayLabel.textContent = this.chart.getDisplayLabel();
 		this.elements.cursorModeLabel.textContent = this.chart.getCursorModeLabel();
@@ -210,11 +236,13 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.chart.setVisibleTraceIds(selected, false);
 		this.chart.setDataset(dataset);
 		this.chart.setHighlightedTraceIds(null);
+		this.selectedGroupIndex = null;
 		this.elements.displayLabel.textContent = this.chart.getDisplayLabel();
 		this.elements.cursorModeLabel.textContent = this.chart.getCursorModeLabel();
 		this.elements.resultTabs.querySelectorAll<HTMLElement>(".result-tab").forEach((tab) => {
 			tab.classList.toggle("active", tab.dataset.id === dataset?.id);
 		});
+		this.renderDcGroupsPanel();
 		this.updateExportState();
 	}
 
@@ -274,12 +302,15 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.elements.traceList.innerHTML = traces.length ? traces.map((trace) => {
 			const traceIndex = dataset.traces.findIndex((item) => item.id === trace.id);
 			const color = trace.color || traceColorAt(traceIndex);
+			// 双源 DC 分组曲线同名：弹窗里补组标签（"V2=1 V"）区分。
+			const metaText = [trace.meta?.groupLabel, trace.unit, t("dialog.samplePoints", formatInteger(trace.points.length))]
+				.filter(Boolean).join(" · ");
 			return `
     <label class="trace-option">
       <input type="checkbox" value="${escapeHtml(trace.id)}" ${this.dialogSelectedTraceIds.has(trace.id) ? "checked" : ""} />
       <span class="trace-swatch" style="--trace-color:${escapeHtml(color)}"></span>
       <span class="trace-name">${escapeHtml(trace.name)}</span>
-      <span class="trace-meta">${escapeHtml(trace.unit)} · ${escapeHtml(t("dialog.samplePoints", formatInteger(trace.points.length)))}</span>
+      <span class="trace-meta">${escapeHtml(metaText)}</span>
     </label>
   `;
 		}).join("") : `<div class="trace-empty">${escapeHtml(t("dialog.noMatchingTrace"))}</div>`;
@@ -384,7 +415,7 @@ export class WaveformController implements AnalysisOverlayHost {
 			this.appendLog(t("log.noWaveformExport"));
 			return;
 		}
-		// MC 模式：scaffold 的 meta.waveformStore 携带全量波形，导出它（不跨模块）。
+		// MC 模式：隐形底图数据集的 meta.waveformStore 携带全量波形，导出它（不跨模块）。
 		if (this.result.datasets.some((dataset) => dataset.id === "mc-scaffold")) {
 			return this.exportScaffoldWaveforms();
 		}
@@ -433,6 +464,69 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.appendLog(t("log.mcWaveformExported", seriesList.length, count));
 	}
 
+	/**
+	 * DC 扫描结果的异常提示：
+	 * - 双源分组无法确定 → 解析失败提示。
+	 * - 数据存在无效点 → 结果不完整提示。
+	 * 按 simulationId 去重：失败后恢复旧结果时不会重复输出。
+	 */
+	private reportDcSweepIssues(): void {
+		if (!this.result) return;
+		const datasets = this.result.datasets.filter((dataset) => dataset.meta.sweep);
+		if (!datasets.length) return;
+		const issueKey = datasets.map((dataset) => `${dataset.id}:${dataset.meta.sweep?.groupingOk ? 1 : 0}${dataset.meta.sweep?.incomplete ? 1 : 0}`).join("|");
+		if (issueKey === this.lastDcIssueKey) return;
+		this.lastDcIssueKey = issueKey;
+		if (datasets.some((dataset) => dataset.meta.sweep?.source2 && !dataset.meta.sweep.groupingOk)) {
+			this.appendLog(t("dc.parseFailed"));
+		}
+		if (datasets.some((dataset) => dataset.meta.sweep?.incomplete)) {
+			this.appendLog(t("dc.incomplete"));
+		}
+	}
+
+	/** 双源 DC 结果对应的分组数据集（无则返回 null）。 */
+	private dcGroupDataset(): WaveformDataset | null {
+		return this.result?.datasets.find((dataset) => dataset.meta.sweep?.source2 && dataset.meta.sweep.groupingOk) ?? null;
+	}
+
+	/**
+	 * 底部"扫描分组"表（仅双源 DC 显示）：每组一行，列 = 组号、源2值、各测量对象末值/范围。
+	 * 点击行 → 画布高亮该组全部曲线、其余置灰。
+	 */
+	private renderDcGroupsPanel(): void {
+		const dataset = this.dcGroupDataset();
+		if (!dataset) {
+			this.hideDcGroupsPanel();
+			return;
+		}
+		this.elements.dcGroupsTab.classList.remove("hidden");
+		mountDataTable(this.elements.dcGroupsTable, {
+			columns: dcGroupColumns(dataset),
+			rows: dcGroupRows(dataset, this.selectedGroupIndex),
+			tableClassName: "wc-table",
+			onRowActivate: (rowId) => {
+				const groupIndex = Number(rowId);
+				if (Number.isFinite(groupIndex)) this.highlightGroup(groupIndex);
+			},
+		});
+	}
+
+	private hideDcGroupsPanel(): void {
+		this.elements.dcGroupsTab.classList.add("hidden");
+		this.elements.dcGroupsTable.innerHTML = "";
+	}
+
+	private highlightGroup(groupIndex: number): void {
+		this.selectedGroupIndex = this.selectedGroupIndex === groupIndex ? null : groupIndex;
+		const dataset = this.dcGroupDataset();
+		const ids = dataset && this.selectedGroupIndex !== null
+			? dataset.traces.filter((trace) => trace.meta?.groupIndex === this.selectedGroupIndex).map((trace) => trace.id)
+			: null;
+		this.setHighlightedTraceIds(this.selectedGroupIndex !== null ? ids : null);
+		this.renderDcGroupsPanel();
+	}
+
 	private updateExportState(): void {
 		this.elements.exportButton.disabled = this.running
 			|| !this.result?.datasets.some((dataset) => dataset.traces.length > 0);
@@ -442,9 +536,76 @@ export class WaveformController implements AnalysisOverlayHost {
 function localizeSimulationResult(result: SimulationResult): SimulationResult {
 	return {
 		...result,
-		datasets: result.datasets.map((dataset) => ({
-			...dataset,
-			title: analysisTitle(dataset.spiceCommandType),
-		})),
+		datasets: result.datasets.map((dataset) => {
+			const next = { ...dataset, title: analysisTitle(dataset.spiceCommandType) };
+			applyDcSweepAxisTitle(next);
+			return next;
+		}),
 	};
+}
+
+/**
+ * DC 扫描横轴标题：电流源显示"扫描电流 {源1} (A)"，电压源显示"扫描电压 {源1} (V)"。
+ * 名称/单位随本次运行的结果冻结（meta.sweep 来自运行时的网表），不随表单变化；
+ * 语言切换时经 refreshLocale 重新生成本地化标题。
+ */
+function applyDcSweepAxisTitle(dataset: WaveformDataset): void {
+	const sweep = dataset.meta.sweep;
+	if (dataset.spiceCommandType !== "dc" || !sweep?.source1.name) return;
+	if (sweep.source1.kind !== "current" && sweep.source1.kind !== "voltage") return;
+	dataset.xAxis = {
+		...dataset.xAxis,
+		name: sweep.source1.kind === "current"
+			? t("dc.axis.current", sweep.source1.name)
+			: t("dc.axis.voltage", sweep.source1.name),
+	};
+}
+
+/**
+ * 双源 DC"扫描分组"表：每组一行（组号、源2值、各测量对象末值/范围），
+ * 行点击高亮对应曲线组（高亮行加 active，经 mountDataTable 绑定）。
+ */
+function dcGroupColumns(dataset: WaveformDataset): string[] {
+	const sweep = dataset.meta.sweep;
+	if (!sweep?.source2) return [];
+	return [
+		t("dc.groupColumn"),
+		sweep.source2.name,
+		...dcGroupObjectNames(dataset).flatMap((name) => [t("dc.groupEndValue", name), t("dc.groupRange", name)]),
+	];
+}
+
+function dcGroupObjectNames(dataset: WaveformDataset): string[] {
+	return [...new Set(dataset.traces.filter((trace) => trace.meta?.groupIndex !== undefined).map((trace) => trace.name))];
+}
+
+function dcGroupRows(dataset: WaveformDataset, selectedGroupIndex: number | null): DataTableRow[] {
+	const sweep = dataset.meta.sweep;
+	if (!sweep?.source2) return [];
+	const grouped = dataset.traces.filter((trace) => trace.meta?.groupIndex !== undefined);
+	const objectNames = dcGroupObjectNames(dataset);
+	const rows: DataTableRow[] = [];
+	for (let groupIndex = 0; groupIndex < sweep.groupCount; groupIndex += 1) {
+		const first = grouped.find((trace) => trace.meta?.groupIndex === groupIndex);
+		const groupLabel = first?.meta?.groupLabel ?? "";
+		const source2Value = groupLabel ? groupLabel.slice(groupLabel.indexOf("=") + 1) : "--";
+		const cells = objectNames.flatMap((name) => {
+			const trace = grouped.find((item) => item.name === name && item.meta?.groupIndex === groupIndex);
+			const [min, max] = extent(trace?.points.map((point) => point[1]) ?? []);
+			const lastFinite = trace?.points.filter((point) => Number.isFinite(point[1])).pop()?.[1];
+			const unit = trace?.unit ? ` ${trace.unit}` : "";
+			const endText = lastFinite === undefined ? "--" : `${formatNumber(lastFinite)}${unit}`;
+			const rangeText = Number.isFinite(min) && Number.isFinite(max)
+				? `${formatNumber(min)} ~ ${formatNumber(max)}${unit}`
+				: "--";
+			return [endText, rangeText];
+		});
+		rows.push({
+			id: String(groupIndex),
+			className: "wc-run-row",
+			active: selectedGroupIndex === groupIndex,
+			cells: [String(groupIndex + 1), source2Value, ...cells],
+		});
+	}
+	return rows;
 }

@@ -32,7 +32,7 @@ export function buildMonteCarloProbeOptionsFromTemplate(
 	const used = new Set<string>();
 
 	for (const probe of probeNodes) {
-		// AC 分析下同一节点会拆成 "v(x) gain" 和 "v(x) phase" 两条 trace,
+		// AC 分析下同一节点会拆成 "v(x) gain" 和 "v(x) phase" 两条曲线,
 		// 都作为独立选项,便于分别叠加增益与相位。
 		for (const trace of findTraceVariantsForProbe(dataset, probe.node)) {
 			if (used.has(trace.id)) continue;
@@ -96,7 +96,7 @@ function findTraceVariantsForProbe(dataset: WaveformDataset, probe: string): Wav
 }
 
 /**
- * 由模板数据集生成采集白名单：探针节点对应的 trace 名/id 精确集合。
+ * 由模板数据集生成采集白名单：探针节点对应的曲线名/id 精确集合。
  * 供 waveform-store 过滤使用，匹配规则与 overlay 完全一致（含 AC gain/phase 后缀）。
  */
 export function probeTraceNamesForProbes(dataset: WaveformDataset, probes: ProbeTarget[]): ReadonlySet<string> {
@@ -112,7 +112,7 @@ export function probeTraceNamesForProbes(dataset: WaveformDataset, probes: Probe
 
 function probeNameCandidates(value: string): Set<string> {
 	const text = normalizeTraceText(value);
-	// AC 分析的 trace 名带 "gain"/"phase" 后缀,数字探针 trace 名带 "digital" 后缀,
+	// AC 分析的曲线名带 "gain"/"phase" 后缀,数字探针曲线名带 "digital" 后缀,
 	// 剥离后再生成候选,否则按节点筛选会漏掉 AC 波形与数字波形。
 	const stripped = text.replace(/(gain|phase)$/i, "").replace(/digital$/i, "");
 	const result = new Set<string>();

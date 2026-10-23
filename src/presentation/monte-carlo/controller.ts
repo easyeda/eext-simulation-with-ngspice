@@ -3,13 +3,14 @@ import type {
 	AnalysisTraceChoice,
 	AnalysisTraceChoiceController,
 } from "../analysis-presentation";
-import { escapeHtml, formatInteger, formatNumber, measurementLabelWithUnit, normalizeMeasurementId, prettyMeasurementId } from "../format";
+import { escapeHtml, formatInteger, formatNumber, measurementLabelWithUnit, normalizeMeasurementId, prettyMeasurementId } from "../utils/format";
 import { t } from "../../shared/i18n";
 import type { ProbeTarget } from "../../shared/probe";
 import type { WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import type { McWaveformStore } from "../../features/monte-carlo/waveform-store";
 import type { MonteCarloMeasurementConfig, MonteCarloResult, MonteCarloSampleProgress, MonteCarloSampleResult, MonteCarloSummary } from "../../features/monte-carlo/types";
-import { downloadTextFile } from "../download";
+import { downloadTextFile } from "../utils/download";
+import { mountDataTable } from "../components/data-table";
 import { buildHistogramMeasurements, type HistogramMeasurement } from "../../features/monte-carlo/histogram";
 import { MonteCarloHistogramChart, type HistogramYAxisMode } from "./histogram-chart";
 import { McOverlayCanvas } from "./overlay-canvas";
@@ -273,13 +274,37 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 			this.summaryTable.innerHTML = `<div class="mc-empty">${escapeHtml(t("table.noSummary"))}</div>`;
 			return;
 		}
-		this.summaryTable.innerHTML = `<table class="mc-table"><thead><tr>
-			<th>${escapeHtml(t("table.measurement"))}</th><th>${escapeHtml(t("table.count"))}</th><th>${escapeHtml(t("table.minimum"))}</th><th>${escapeHtml(t("table.maximum"))}</th><th>${escapeHtml(t("table.mean"))}</th><th>${escapeHtml(t("table.stdDev"))}</th><th>P5</th><th>${escapeHtml(t("table.median"))}</th><th>P95</th><th>${escapeHtml(t("table.yield"))}</th>
-		</tr></thead><tbody>${summaries.map((summary) => `<tr class="mc-summary-row ${normalizeMeasurementId(summary.measurementId) === this.activeHistogramMeasurementId ? "active" : ""}" data-measurement-id="${escapeHtml(normalizeMeasurementId(summary.measurementId))}">
-			<td title="${escapeHtml(summary.measurementId)}">${escapeHtml(measurementLabelWithUnit(summary.label, summary.unit))}</td><td>${formatInteger(summary.count)}</td><td>${formatNumber(summary.min)}</td><td>${formatNumber(summary.max)}</td><td>${formatNumber(summary.mean)}</td><td>${formatNumber(summary.stdDev)}</td><td>${formatNumber(summary.p5)}</td><td>${formatNumber(summary.median)}</td><td>${formatNumber(summary.p95)}</td><td>${summary.yieldRate === undefined ? "-" : `${formatNumber(summary.yieldRate * 100, 3)}%`}</td>
-		</tr>`).join("")}</tbody></table>`;
-		this.summaryTable.querySelectorAll<HTMLTableRowElement>(".mc-summary-row").forEach((row) => {
-			row.addEventListener("click", () => this.selectHistogramMeasurement(row.dataset.measurementId || "", "summary"));
+		mountDataTable(this.summaryTable, {
+			columns: [
+				t("table.measurement"),
+				t("table.count"),
+				t("table.minimum"),
+				t("table.maximum"),
+				t("table.mean"),
+				t("table.stdDev"),
+				"P5",
+				t("table.median"),
+				"P95",
+				t("table.yield"),
+			],
+			rows: summaries.map((summary) => ({
+				id: normalizeMeasurementId(summary.measurementId),
+				className: "mc-summary-row",
+				active: normalizeMeasurementId(summary.measurementId) === this.activeHistogramMeasurementId,
+				cells: [
+					{ text: measurementLabelWithUnit(summary.label, summary.unit), title: summary.measurementId },
+					formatInteger(summary.count),
+					formatNumber(summary.min),
+					formatNumber(summary.max),
+					formatNumber(summary.mean),
+					formatNumber(summary.stdDev),
+					formatNumber(summary.p5),
+					formatNumber(summary.median),
+					formatNumber(summary.p95),
+					summary.yieldRate === undefined ? "-" : `${formatNumber(summary.yieldRate * 100, 3)}%`,
+				],
+			})),
+			onRowActivate: (measurementId) => this.selectHistogramMeasurement(measurementId, "summary"),
 		});
 	}
 
@@ -290,16 +315,31 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		}
 		const measurementIds = collectSampleMeasurementIds(samples);
 		const configsById = new Map(this.measurementConfigs.map((config) => [normalizeMeasurementId(config.id), config]));
-		this.sampleTable.innerHTML = `<table class="mc-table"><thead><tr><th>#</th><th>${escapeHtml(t("table.status"))}</th>${measurementIds.map((id) => `<th>${escapeHtml(measurementLabelWithUnit(prettyMeasurementId(id), configsById.get(normalizeMeasurementId(id))?.unit))}</th>`).join("")}<th>${escapeHtml(t("table.error"))}</th></tr></thead>
-		<tbody>${samples.map((sample) => {
-			const values = new Map(sample.measurements.map((measurement) => [measurement.id, measurement.value]));
-			return `<tr class="mc-sample-row ${sample.ok ? "" : "failed"} ${sample.sampleIndex === this.highlightedSampleIndex ? "active" : ""}" data-sample-index="${sample.sampleIndex}"><td>${sample.sampleIndex}</td><td>${sample.ok ? "OK" : escapeHtml(t("table.failed"))}</td>${measurementIds.map((id) => `<td>${values.has(id) ? formatNumber(values.get(id) as number) : "-"}</td>`).join("")}<td title="${escapeHtml(sample.error || "")}">${escapeHtml(sample.error || "")}</td></tr>`;
-		}).join("")}</tbody></table>`;
-		this.sampleTable.querySelectorAll<HTMLTableRowElement>(".mc-sample-row").forEach((row) => {
-			row.addEventListener("click", () => {
-				const sampleIndex = Number(row.dataset.sampleIndex);
+		mountDataTable(this.sampleTable, {
+			columns: [
+				"#",
+				t("table.status"),
+				...measurementIds.map((id) => measurementLabelWithUnit(prettyMeasurementId(id), configsById.get(normalizeMeasurementId(id))?.unit)),
+				t("table.error"),
+			],
+			rows: samples.map((sample) => {
+				const values = new Map(sample.measurements.map((measurement) => [measurement.id, measurement.value]));
+				return {
+					id: String(sample.sampleIndex),
+					className: sample.ok ? "mc-sample-row" : "mc-sample-row failed",
+					active: sample.sampleIndex === this.highlightedSampleIndex,
+					cells: [
+						String(sample.sampleIndex),
+						sample.ok ? "OK" : t("table.failed"),
+						...measurementIds.map((id) => (values.has(id) ? formatNumber(values.get(id) as number) : "-")),
+						{ text: sample.error || "", title: sample.error || "" },
+					],
+				};
+			}),
+			onRowActivate: (rowId) => {
+				const sampleIndex = Number(rowId);
 				if (Number.isFinite(sampleIndex)) this.highlightSample(sampleIndex);
-			});
+			},
 		});
 	}
 
@@ -321,7 +361,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		}
 		this.ensureOverlayCanvas();
 		// scaffold：隐形极值线（全部样本的全局 min/max）只用于撑出覆盖全部数据的轴范围，
-		// ECharts 不绘制它（name 以 "__" 开头的 trace 会被隐藏）；波形本体全部在画布层。
+		// ECharts 不绘制它（曲线名以 "__" 开头的会被隐藏）；波形本体全部在画布层。
 		const scaffold = this.buildScaffoldDataset(template, meta);
 		if (!scaffold) return;
 		this.scaffoldDataset = scaffold;
@@ -459,7 +499,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 
 	private highlightSample(sampleIndex: number): void {
 		this.highlightedSampleIndex = this.highlightedSampleIndex === sampleIndex ? null : sampleIndex;
-		// 写入 scaffold meta：图表的跟随读数/交点圆点据此聚焦该样本（mousemove 时实时读取）。
+		// 写入隐形底图数据集的 meta：图表的跟随读数/交点圆点据此聚焦该样本（鼠标移动时实时读取）。
 		if (this.scaffoldDataset) this.scaffoldDataset.meta.highlightSampleIndex = this.highlightedSampleIndex ?? undefined;
 		this.overlayCanvas?.setHighlightedSample(this.highlightedSampleIndex);
 		this.syncSampleHighlight();

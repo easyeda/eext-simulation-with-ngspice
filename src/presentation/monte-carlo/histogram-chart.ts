@@ -1,34 +1,30 @@
-import * as echarts from 'echarts';
-import type { ECharts, EChartsOption } from 'echarts';
+import type { EChartsOption } from 'echarts';
 import { getNumberLocale, t } from '../../shared/i18n';
+import { ChartBase } from '../components/chart-kit/echarts-chart-base';
+import { formatInteger } from '../components/chart-kit/axis-format';
 import { buildHistogramBins, type HistogramMeasurement } from '../../features/monte-carlo/histogram';
 
 export type HistogramYAxisMode = 'count' | 'percent';
 
 /** Monte Carlo 直方图的 ECharts 展示适配器。 */
-export class MonteCarloHistogramChart {
-	private readonly chart: ECharts;
+export class MonteCarloHistogramChart extends ChartBase {
 	private measurement: HistogramMeasurement | null = null;
 	private yAxisMode: HistogramYAxisMode = 'count';
 	private specVisible = true;
 	private selectedBinIndex: number | null = null;
 
 	constructor(
-		private readonly element: HTMLElement,
-		private readonly titleElement: HTMLElement,
-		private readonly badgesElement: HTMLElement,
+		element: HTMLElement,
+		titleElement: HTMLElement,
+		badgesElement: HTMLElement,
 	) {
-		this.chart = echarts.init(element, null, {
-			renderer: 'canvas',
-			width: element.clientWidth || 1,
-			height: element.clientHeight || 1,
-		});
+		// #histogramChart 初始 hidden,兜底 1×1;显示后由 resize() 更新真实尺寸。
+		super(element, titleElement, badgesElement, { fallbackWidth: 1, fallbackHeight: 1 });
 		this.chart.on('click', (event: { dataIndex?: number }) => {
 			if (typeof event.dataIndex !== 'number') return;
 			this.selectedBinIndex = event.dataIndex;
 			this.render();
 		});
-		window.addEventListener('resize', () => this.resize());
 		this.renderEmpty();
 	}
 
@@ -57,36 +53,16 @@ export class MonteCarloHistogramChart {
 		this.render();
 	}
 
-	resize() {
-		const width = this.element.clientWidth;
-		const height = this.element.clientHeight;
-		if (!width || !height) return;
-		this.chart.resize({ width, height });
+	protected hasContent(): boolean {
+		return this.measurement !== null;
 	}
 
-	refreshLocale() {
-		if (this.measurement) this.render();
-		else this.renderEmpty();
+	protected renderEmpty(): void {
+		this.setChartMeta(t('chart.histogramTitle'), `<span class="chart-meta">${t('chart.histogramWaiting')}</span>`);
+		this.renderEmptyChart(t('chart.histogramEmpty'));
 	}
 
-	private renderEmpty() {
-		this.titleElement.textContent = t('chart.histogramTitle');
-		this.badgesElement.innerHTML = `<span class="chart-meta">${t('chart.histogramWaiting')}</span>`;
-		this.chart.setOption({
-			backgroundColor: '#f7f8fa',
-			xAxis: { show: false },
-			yAxis: { show: false },
-			series: [],
-			graphic: {
-				type: 'text',
-				left: 'center',
-				top: 'middle',
-				style: { text: t('chart.histogramEmpty'), fill: '#868686', font: '12px Microsoft YaHei' },
-			},
-		} satisfies EChartsOption, true);
-	}
-
-	private render() {
+	protected render(): void {
 		const measurement = this.measurement;
 		if (!measurement) {
 			this.renderEmpty();
@@ -107,8 +83,10 @@ export class MonteCarloHistogramChart {
 		const peakValue = Math.max(...bins.map((bin) => this.yAxisMode === 'count' ? bin.count : bin.count / total * 100));
 		const yAxisMax = peakValue * 7 / 6;
 
-		this.titleElement.textContent = t('chart.distributionTitle', measurement.label);
-		this.badgesElement.innerHTML = `<span class="chart-meta">${t('chart.histogramMeta', formatInteger(total), bins.length)}</span>`;
+		this.setChartMeta(
+			t('chart.distributionTitle', measurement.label),
+			`<span class="chart-meta">${t('chart.histogramMeta', formatInteger(total), bins.length)}</span>`,
+		);
 
 		const markLines: any[] = [{
 			xAxis: measurement.summary.mean,
@@ -168,12 +146,10 @@ export class MonteCarloHistogramChart {
 			},
 			series: [{
 				type: 'bar',
-				// 柱宽收敛留出间隙，柱多时保持可辨识的分箱边界。
 				barWidth: '60%',
 				data: bins.map((bin, index) => ({
 					value: [(bin.lower + bin.upper) / 2, this.yAxisMode === 'count' ? bin.count : bin.count / total * 100],
 					itemStyle: {
-						// EasyEDA 规范蓝色组：品牌蓝 #1890ff / 悬停 #40a9ff / 按下 #096dd9
 						color: index === selectedBinIndex ? '#1890ff' : '#40a9ff',
 						borderColor: index === selectedBinIndex ? '#096dd9' : '#1890ff',
 						borderWidth: index === selectedBinIndex ? 2 : 1,
@@ -184,10 +160,6 @@ export class MonteCarloHistogramChart {
 		};
 		this.chart.setOption(option, true);
 	}
-}
-
-function formatInteger(value: number): string {
-	return Number.isFinite(value) ? Math.round(value).toLocaleString(getNumberLocale()) : '0';
 }
 
 function formatNumber(value: number, digits = 6): string {

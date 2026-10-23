@@ -3,6 +3,12 @@ import { extractCurrentProbes } from "./probe-discovery";
 import { probeNameCandidates, sameProbeName } from "./probe-names";
 import type { WaveformDataset, WaveformTrace } from "./waveform";
 
+/** 双源 DC 分组：电压 trace 按 meta.groupIndex 拆分；null = 无分组（普通分析/单源）。 */
+interface TraceGroup {
+	index: number | null;
+	label: string | null;
+}
+
 export function addSyntheticCurrentProbeTraces(
 	datasets: WaveformDataset[],
 	netlist: string,
@@ -15,20 +21,34 @@ export function addSyntheticCurrentProbeTraces(
 		const nextTraces = [...dataset.traces];
 		let changed = false;
 		for (const probe of currentProbes) {
-			if (nextTraces.some((trace) => sameProbeName(trace.name, probe.name))) continue;
-			const a = findVoltageTrace(dataset.traces, probe.nodeA);
-			const b = findVoltageTrace(dataset.traces, probe.nodeB);
-			if (!a || !b) continue;
-			const points = subtractAlignedPoints(a.points, b.points, probe.resistance);
-			if (!points.length) continue;
-			nextTraces.push({
-				id: slugify(`current:${probe.name}`),
-				name: probe.name,
-				axisId: "current",
-				unit: inferUnit(probe.name, "current"),
-				points,
-			});
-			changed = true;
+			// 双源 DC 的电压曲线带分组（meta.groupIndex）：逐组配对合成电流，
+			// 无分组时 index 为 null 走原有路径。
+			for (const group of collectTraceGroups(dataset.traces)) {
+				if (nextTraces.some((trace) => (
+					sameProbeName(trace.name, probe.name) && (trace.meta?.groupIndex ?? null) === group.index
+				))) continue;
+				const a = findVoltageTraceForGroup(dataset.traces, probe.nodeA, group.index);
+				const b = findVoltageTraceForGroup(dataset.traces, probe.nodeB, group.index);
+				if (!a || !b) continue;
+				const points = subtractAlignedPoints(a.points, b.points, probe.resistance);
+				if (!points.length) continue;
+				nextTraces.push({
+					id: slugify(`current:${probe.name}${group.index !== null ? `-g${group.index + 1}` : ""}`),
+					name: probe.name,
+					axisId: "current",
+					unit: inferUnit(probe.name, "current"),
+					points,
+					...(group.index !== null || group.label
+						? {
+							meta: {
+								...(group.index !== null ? { groupIndex: group.index } : {}),
+								...(group.label ? { groupLabel: group.label } : {}),
+							},
+						}
+						: {}),
+				});
+				changed = true;
+			}
 		}
 		if (!changed) return dataset;
 		const hasCurrentAxis = dataset.yAxes.some((axis) => axis.id === "current");
@@ -55,11 +75,29 @@ export function addSyntheticCurrentProbeTraces(
 	});
 }
 
-function findVoltageTrace(traces: WaveformTrace[], node: string): WaveformTrace | null {
+/** 数据集中出现的分组集合（电压 trace 的 meta.groupIndex/groupLabel），保持出现顺序。 */
+function collectTraceGroups(traces: WaveformTrace[]): TraceGroup[] {
+	const groups: TraceGroup[] = [];
+	for (const trace of traces) {
+		if (trace.axisId !== "voltage") continue;
+		const index = trace.meta?.groupIndex ?? null;
+		if (groups.some((group) => group.index === index)) continue;
+		groups.push({ index, label: trace.meta?.groupLabel ?? null });
+	}
+	return groups;
+}
+
+function findVoltageTraceForGroup(
+	traces: WaveformTrace[],
+	node: string,
+	groupIndex: number | null,
+): WaveformTrace | null {
 	const candidates = new Set(probeNameCandidates(node));
-	return traces.find((trace) => (
-		trace.axisId === "voltage" && traceMatchesWanted(trace, candidates)
-	)) ?? null;
+	return traces.find((trace) => {
+		if (trace.axisId !== "voltage") return false;
+		if ((trace.meta?.groupIndex ?? null) !== groupIndex) return false;
+		return traceMatchesWanted(trace, candidates);
+	}) ?? null;
 }
 
 function subtractAlignedPoints(
@@ -77,7 +115,10 @@ function subtractAlignedPoints(
 			|| !Number.isFinite(bx)
 			|| Math.abs(ax - bx) > Math.max(1e-15, Math.abs(ax) * 1e-9)
 		) continue;
-		points.push([ax, (a[index][1] - b[index][1]) / divisor]);
+		const av = a[index][1];
+		const bv = b[index][1];
+		if (!Number.isFinite(av) || !Number.isFinite(bv)) continue;
+		points.push([ax, (av - bv) / divisor]);
 	}
 	return points;
 }

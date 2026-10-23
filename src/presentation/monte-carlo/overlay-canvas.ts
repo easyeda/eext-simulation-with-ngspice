@@ -141,7 +141,6 @@ export class McOverlayCanvas {
 		const ctx = this.ctx;
 		if (!ctx || !this.geometry) return;
 		const highlighted = !dimmed && this.highlightedSampleIndex === sample.sampleIndex;
-		// 置灰态：统一浅灰、不透明度降低；正常态：原始鲜艳色。
 		ctx.strokeStyle = dimmed ? "#c9cdd4" : sample.color;
 		ctx.globalAlpha = dimmed ? 0.55 : 1;
 		const count = Math.min(sample.time.length, sample.values.length);

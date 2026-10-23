@@ -18,8 +18,8 @@ import {
 	onLanguageChanged,
 	t,
 } from '../shared/i18n';
-import { applyTranslations } from '../presentation/localization';
-import { escapeHtml } from '../presentation/format';
+import { applyTranslations } from '../presentation/utils/localization';
+import { escapeHtml } from '../presentation/utils/format';
 import { iconHtml } from '../shared/icons';
 import type { AnalysisType } from '../shared/analysis-types';
 import type { WorstCaseObjective } from '../features/worst-case/types';
@@ -174,6 +174,8 @@ const waveformController: WaveformController = new WaveformController(chart, {
 	invertSelectionButton: traceInvertButton,
 	applySelectionButton: traceApplyButton,
 	cancelSelectionButton: traceCancelButton,
+	dcGroupsTab: query<HTMLButtonElement>('#dcGroupsTab'),
+	dcGroupsTable: query<HTMLElement>('#dcGroupsTable'),
 }, {
 	activeTraceChoiceController,
 	appendLog,
@@ -181,6 +183,10 @@ const waveformController: WaveformController = new WaveformController(chart, {
 	exportBaseName: (result): string => getAnalysisType() === 'monte-carlo'
 		? `monte-carlo-waveform-${monteCarloController.selectedProbeLabel()}`
 		: `waveform-${result.datasets[0]?.productAnalysisType || 'analysis'}-${result.datasets[0]?.spiceCommandType || 'waveform'}`,
+	activateDcGroupsPanel: () => {
+		workbench.activateBottomPanel('dcGroups');
+		workbench.toggleBottomCollapsed(false);
+	},
 });
 
 const logicController = new LogicController(
@@ -378,7 +384,7 @@ bottomTabs.forEach((button) => {
 });
 inputDockButton.addEventListener('click', () => activateInputPanel('netlist'));
 mcSettingsDockButton.addEventListener('click', () => activateInputPanel('mcSettings'));
-// 可见输入框与 hidden 载体同步：非法输入标红不写入，合法值才落到载体供运行读取。
+// 可见输入框与隐藏载体同步：非法输入标红不写入，合法值才落到载体供运行读取。
 mcSampleCountVisible.addEventListener('input', () => {
 	const valid = isValidMcInteger(mcSampleCountVisible.value, 1, 10000);
 	mcSampleCountVisible.setAttribute('aria-invalid', valid || !mcSampleCountVisible.value.trim() ? 'false' : 'true');
@@ -505,6 +511,8 @@ async function runCurrentNetlist(trigger: 'manual' | 'eda-auto') {
 	mcAbortController = getAnalysisType() === 'monte-carlo' ? new AbortController() : null;
 	const request = buildCurrentAnalysisRequest(netlist);
 	if (!request) return;
+	// DC 失败时保留上一次成功结果并打"上一次成功运行的结果"标记，先做快照。
+	const previousDcResult = getAnalysisType() === 'dc' ? waveformController.getResult() : null;
 	prepareAnalysisRun(request, trigger);
 	setRunning(true);
 	try {
@@ -512,6 +520,10 @@ async function runCurrentNetlist(trigger: 'manual' | 'eda-auto') {
 		mergeLogs(execution.logs);
 		for (const artifact of execution.artifacts) presentAnalysisArtifact(artifact);
 		appendExecutionOutcome(execution.analysisType, execution.ok, execution.error, execution.logs);
+		if (!execution.ok && request.analysisType === 'dc' && previousDcResult) {
+			waveformController.present(previousDcResult);
+			waveformController.markStaleResult();
+		}
 	}
 	catch (error) {
 		appendLog(t('log.requestFailed', error instanceof Error ? error.message : String(error)));
@@ -581,8 +593,8 @@ function prepareAnalysisRun(request: ProductAnalysisRequest, trigger: 'manual' |
 const artifactPresenters: Record<ProductAnalysisArtifact['kind'], (artifact: ProductAnalysisArtifact) => void> = {
 	waveform: (artifact) => {
 		if (artifact.kind !== 'waveform') return;
-		// 标准分析分流：逻辑 trace 进逻辑分析图，模拟 trace 进波形图。
-		// MC/WC 叠加 dataset 不走这里（waveformController.present 直接处理）。
+		// 标准分析分流：数字信号曲线进逻辑分析图，模拟信号曲线进波形图。
+		// MC/WC 的叠加结果不走这里（waveformController.present 直接处理）。
 		if (getAnalysisType() === 'transient' || getAnalysisType() === 'ac' || getAnalysisType() === 'dc') {
 			logicController.present(artifact.payload, currentProbeNodes);
 			return;
@@ -605,6 +617,16 @@ function presentAnalysisArtifact(artifact: ProductAnalysisArtifact) {
 
 function appendExecutionOutcome(analysisType: AnalysisType, ok: boolean, error: string | undefined, logs: string[]) {
 	if (!ok) {
+		if (analysisType === 'dc') {
+			if (/no waveform datasets/i.test(error || '')) {
+				appendLog(t('dc.noData'));
+				return;
+			}
+			if (/converg/i.test(error || '')) {
+				appendLog(t('dc.notConverged'));
+				return;
+			}
+		}
 		appendLog(analysisUiCatalog[analysisType].failureMessage(outcomeErrorDetail(error, logs)));
 		return;
 	}

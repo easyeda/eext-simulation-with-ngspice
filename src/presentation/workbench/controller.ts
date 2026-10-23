@@ -1,7 +1,7 @@
 import { t } from '../../shared/i18n';
 import { iconHtml } from '../../shared/icons';
 
-export type BottomPanelId = 'log' | 'mcSummary' | 'mcSamples' | 'wcSummary' | 'wcImpact' | 'wcCases';
+export type BottomPanelId = 'log' | 'mcSummary' | 'mcSamples' | 'wcSummary' | 'wcImpact' | 'wcCases' | 'dcGroups';
 
 interface WorkbenchElements {
 	app: HTMLElement;
@@ -158,6 +158,7 @@ function bottomPanelIdForPane(pane: HTMLElement): BottomPanelId {
 	if (pane.id === 'wcSummaryPanel') return 'wcSummary';
 	if (pane.id === 'wcImpactPanel') return 'wcImpact';
 	if (pane.id === 'wcCasesPanel') return 'wcCases';
+	if (pane.id === 'dcGroupsPanel') return 'dcGroups';
 	return 'log';
 }
 

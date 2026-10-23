@@ -1,4 +1,4 @@
-import { getCurrentLanguage, t } from "../shared/i18n";
+import { getCurrentLanguage, t } from "../../shared/i18n";
 
 /** 将当前语言应用到已有 DOM；翻译查询本身仍由共享语言服务提供。 */
 export function applyTranslations(root: ParentNode = document): void {

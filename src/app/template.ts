@@ -229,6 +229,9 @@ export const iframeTemplate = `
         <section id="wcCasesPanel" class="bottom-pane">
           <div id="wcCasesTable" class="mc-table-wrap"></div>
         </section>
+        <section id="dcGroupsPanel" class="bottom-pane">
+          <div id="dcGroupsTable" class="mc-table-wrap"></div>
+        </section>
       </div>
       <div class="bottom-tabs">
         <button class="bottom-tab active" type="button" data-panel="log" data-i18n="bottom.log">运行日志</button>
@@ -237,6 +240,7 @@ export const iframeTemplate = `
         <button id="wcSummaryTab" class="bottom-tab hidden" type="button" data-panel="wcSummary" data-i18n="bottom.wcSummary">结果摘要</button>
         <button id="wcImpactTab" class="bottom-tab hidden" type="button" data-panel="wcImpact" data-i18n="bottom.wcImpact">参数影响</button>
         <button id="wcCasesTab" class="bottom-tab hidden" type="button" data-panel="wcCases" data-i18n="bottom.wcCases">运行明细</button>
+        <button id="dcGroupsTab" class="bottom-tab hidden" type="button" data-panel="dcGroups" data-i18n="bottom.dcGroups">扫描分组</button>
         <span id="mcStatusText" class="bottom-status hidden">未运行</span>
         <button id="mcExportButton" class="eda-button default compact hidden" type="button">
           ${iconHtml('export')}

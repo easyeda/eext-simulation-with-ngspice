@@ -1,7 +1,7 @@
 import type { WorstCaseResult } from "../../features/worst-case/types";
 import type { ToleranceSource } from "../../shared/variation";
 import { t } from "../../shared/i18n";
-import { formatNumber } from "../format";
+import { formatNumber } from "../utils/format";
 
 export function formatAssignments(assignments: Record<string, number>): string {
 	return Object.entries(assignments).map(([name, value]) => `${name}=${formatNumber(value)}`).join(", ");

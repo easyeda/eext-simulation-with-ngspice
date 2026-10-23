@@ -30,7 +30,7 @@ export function preferredTraceIdsByDataset(
 function traceMatchesWanted(trace: WaveformTrace, wanted: Set<string>): boolean {
 	const names = probeNameCandidates(trace.name);
 	names.push(...probeNameCandidates(trace.id));
-	// AC 分析把每个电压向量拆成 "v(out) gain" / "v(out) phase" 两条 trace,
+	// AC 分析把每个电压向量拆成 "v(out) gain" / "v(out) phase" 两条曲线,
 	// 剥掉 gain/phase 后缀再匹配探针节点,否则按节点筛选会漏掉 AC 波形。
 	const baseName = trace.name.replace(/\s+(gain|phase)$/i, "");
 	if (baseName !== trace.name) names.push(...probeNameCandidates(baseName));

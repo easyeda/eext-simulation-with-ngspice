@@ -1,6 +1,6 @@
 # NGspice 仿真
 
-版本：V1.9.1
+版本：V1.10.1
 
 作者：LCEDA
 
@@ -96,7 +96,7 @@ NGspice 仿真是一款面向嘉立创 EDA 专业版的本地仿真与波形查�
 
 ## 已知限制
 
-- V1.9.1 仅支持网表文本输入：兼容 LTspice / PSpice / HSPICE 方言语法（ngbehavior），但不支持导入原理图工程文件（如 `.sch` / `.asc`），方言特有语法也不保证全部解析。
+- V1.10.1 仅支持网表文本输入：兼容 LTspice / PSpice / HSPICE 方言语法（ngbehavior），但不支持导入原理图工程文件（如 `.sch` / `.asc`），方言特有语法也不保证全部解析。
 - 仿真能力以当前内置 NGspice WASM 构建为准，已启用 XSPICE，暂未启用 CIDER、OSDI、OpenMP、KLU。
 - 大型电路或长时间仿真会受浏览器内存和单线程执行时间影响。
 

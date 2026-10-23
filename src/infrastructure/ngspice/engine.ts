@@ -30,7 +30,7 @@ export class WasmSpiceEngine implements SpiceEngine {
 
 	async open(netlist: string, options: OpenSpiceSessionOptions = {}): Promise<OpenSpiceSessionResult> {
 		throwIfAborted(options.signal);
-		// Run mode 由各 feature runner 记录（带分析类型上下文）
+		// 运行模式说明由各分析的执行器记录（带分析类型上下文）
 		const logs: string[] = [];
 		const session = await NgspiceSession.open(netlist, {
 			wasmBaseUrl: this.options.wasmBaseUrl,

@@ -22,7 +22,7 @@ export function collectLogicTraces(result: SimulationResult): WaveformTrace[] {
 }
 
 /**
- * 模拟 trace → 逻辑行：用探针阈值 lowLevel/highLevel 把电压转成逻辑值。
+ * 模拟信号曲线 → 逻辑行：用探针阈值 lowLevel/highLevel 把电压转成逻辑值。
  * 返回 null 表示探针缺少阈值，无法转换。
  */
 export function analogToLogicRow(

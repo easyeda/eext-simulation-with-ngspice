@@ -1,4 +1,4 @@
-import { getNumberLocale } from "../../shared/i18n";
+import { getNumberLocale } from "../../../shared/i18n";
 
 export type AxisScale = "linear" | "log";
 
@@ -128,15 +128,8 @@ export function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-export function escapeHtml(value: string): string {
-	return value.replace(/[&<>"']/g, (char) => ({
-		"&": "&amp;",
-		"<": "&lt;",
-		">": "&gt;",
-		"\"": "&quot;",
-		"'": "&#39;",
-	}[char] || char));
-}
+// HTML 转义全插件唯一实现在 presentation/format.ts，这里转发以保持既有导入路径。
+export { escapeHtml } from "../../utils/format";
 
 function formatAxisValue(value: number, unit: string): string {
 	if (!Number.isFinite(value)) return "";

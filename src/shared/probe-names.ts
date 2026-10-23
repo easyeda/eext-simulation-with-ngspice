@@ -1,7 +1,7 @@
 export function probeNameCandidates(value: string): string[] {
 	const text = normalizeProbeText(value);
 	if (!text) return [];
-	// 数字探针 trace 名为 "<node> digital"，候选集按基础节点名生成，
+	// 数字探针曲线名为 "<node> digital"，候选集按基础节点名生成，
 	// 让 "out digital" 能与探针 "out" / "v(out)" 匹配。
 	const digitalBase = text.replace(/\s+digital$/, "");
 	const unwrapped = digitalBase.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");

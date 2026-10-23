@@ -53,7 +53,8 @@ export function waveformDatasetToCsv(dataset: WaveformDataset): string {
 
 function datasetToWideCsv(dataset: WaveformDataset): string {
 	const xHeader = axisHeader(dataset.xAxis.name || 'x', dataset.xAxis.unit);
-	const headers = [xHeader, ...dataset.traces.map((trace) => axisHeader(trace.name, trace.unit))];
+	// 双源 DC 分组曲线同名：列头补组标签（"v(out) · V2=1 V (V)"）保留分组信息。
+	const headers = [xHeader, ...dataset.traces.map((trace) => axisHeader(trace.name, trace.unit, trace.meta?.groupLabel))];
 	const rowCount = dataset.traces[0]?.points.length || 0;
 	const rows = [headers.map(csvCell).join(',')];
 	for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
@@ -80,13 +81,15 @@ function datasetToLongCsv(dataset: WaveformDataset): string {
 	];
 	const rows = [headers.join(',')];
 	for (const trace of dataset.traces) {
+		// 双源 DC 分组曲线：traceName 补组标签，保留分组信息。
+		const traceName = trace.meta?.groupLabel ? `${trace.name} · ${trace.meta.groupLabel}` : trace.name;
 		for (const [x, y] of trace.points) {
 			rows.push([
 				dataset.id,
 				dataset.productAnalysisType,
 				dataset.spiceCommandType,
 				trace.id,
-				trace.name,
+				traceName,
 				dataset.xAxis.name,
 				dataset.xAxis.unit,
 				x,
@@ -107,12 +110,14 @@ function tracesShareXAxis(traces: WaveformTrace[]): boolean {
 	));
 }
 
-function axisHeader(name: string, unit: string): string {
-	return unit ? `${name} (${unit})` : name;
+function axisHeader(name: string, unit: string, groupLabel?: string): string {
+	const display = groupLabel ? `${name} · ${groupLabel}` : name;
+	return unit ? `${display} (${unit})` : display;
 }
 
 function csvCell(value: string | number): string {
-	const text = typeof value === 'number' ? String(value) : value;
+	// 非有限数值（DC 扫描无效点占位）导出为空单元格：不补点、不造假数据。
+	const text = typeof value === 'number' ? (Number.isFinite(value) ? String(value) : '') : value;
 	return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

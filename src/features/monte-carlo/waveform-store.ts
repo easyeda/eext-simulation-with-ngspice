@@ -52,7 +52,7 @@ export class McWaveformStore {
 		const names: string[] = [];
 		const values: Float32Array[] = [];
 		for (const trace of dataset.traces) {
-			// traceFilter 为精确的 trace 名/id 白名单（由首样本模板 + EDA 探针计算，
+			// traceFilter 为精确的 曲线名/id 白名单（由首样本模板 + EDA 探针计算，
 			// 匹配规则与 overlay 一致，含 AC gain/phase 后缀）。
 			if (traceFilter && !traceFilter.has(trace.name) && !traceFilter.has(trace.id)) continue;
 			names.push(trace.name);

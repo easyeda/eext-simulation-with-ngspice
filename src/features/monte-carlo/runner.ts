@@ -126,7 +126,7 @@ export async function runMonteCarloAnalysis(
 				if (datasets.length) {
 					if (pendingProbeNodes && captureFilter === null) {
 						const whitelist = probeTraceNamesForProbes(datasets[0], pendingProbeNodes);
-						// 白名单为空说明探针与 trace 名不匹配，退回全量采集以免波形丢失。
+						// 白名单为空说明探针与曲线名对不上，退回全量采集以免波形丢失。
 						captureFilter = whitelist.size ? whitelist : null;
 					}
 					waveformStore.addSample(sampleIndex, datasets[0], captureFilter);
@@ -164,7 +164,7 @@ export async function runMonteCarloAnalysis(
 						template: waveformStore.getTemplate(),
 					});
 					// 让出事件循环：await 延续在微任务队列，整圈循环会挤成一个宏任务，
-					// rAF 没机会执行（表现为跑完才一次性出图）。MessageChannel 无 4ms 钳制。
+					// 浏览器没机会刷新画面（表现为跑完才一次性出图）。MessageChannel 无 4ms 钳制。
 					await yieldToEventLoop();
 				}
 			}
@@ -305,7 +305,7 @@ function generateSeed(): number {
 
 /**
  * 让出事件循环（排到宏任务队列末尾），使浏览器有机会在样本之间执行
- * rAF/绘制。优先用 MessageChannel（无 setTimeout 嵌套 4ms 钳制）。
+ * 画面刷新/绘制。优先用 MessageChannel（无 setTimeout 嵌套 4ms 钳制）。
  */
 function yieldToEventLoop(): Promise<void> {
 	const channelCtor = (globalThis as {
