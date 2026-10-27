@@ -508,7 +508,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 
 	private syncSampleHighlight(): void {
 		this.sampleTable.querySelectorAll<HTMLTableRowElement>(".mc-sample-row").forEach((row) => {
-			row.classList.toggle("active", Number(row.dataset.sampleIndex) === this.highlightedSampleIndex);
+			row.classList.toggle("active", Number(row.dataset.rowId) === this.highlightedSampleIndex);
 		});
 	}
 

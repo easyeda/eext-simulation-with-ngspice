@@ -17,6 +17,7 @@ import { ChartBase } from "../components/chart-kit/echarts-chart-base";
 import { CursorInspectorPanel } from "../components/chart-kit/cursor-inspector";
 import { CursorLineGraphics } from "../components/chart-kit/cursor-graphics";
 import { CHART_LEGEND_ICON, colorAt } from "../components/chart-kit/palette";
+import { measureChartText } from "../components/chart-kit/text-metrics";
 import { panRange, zoomRange } from "../components/chart-kit/view-scale";
 import {
 	downsamplePreserveExtremes,
@@ -52,6 +53,12 @@ interface PanState {
   dragging: boolean;
 }
 
+/** y 轴文字实测宽度：刻度标签决定边距下限，轴名决定顶部两端的留白。 */
+interface YAxisTextMetrics {
+  labelWidth: number;
+  nameWidth: number;
+}
+
 const TARGET_POINTS_PER_PIXEL = 2.5;
 const MIN_RENDER_POINTS = 1200;
 const MAX_RENDER_POINTS = 12000;
@@ -61,6 +68,10 @@ const CURSOR_GRAPHIC_Z = 10000;
 /** 自绘覆盖层（跟随线/圆点、游标线/手柄）的独立渲染层，避免更新时整层重绘曲线。 */
 const OVERLAY_ZLEVEL = 100;
 const CURSOR_LABEL_MAX_ROWS = 8;
+/** y 轴布局：刻度标签间距、刻度线长度、贴边留白。 */
+const AXIS_LABEL_MARGIN = 8;
+const AXIS_TICK_LENGTH = 5;
+const AXIS_EDGE_PADDING = 4;
 /** 统一调色板取色入口。 */
 export const traceColorAt = colorAt;
 
@@ -104,6 +115,8 @@ export class WaveformChart extends ChartBase {
   private visibleTraceIds: Set<string> | null = null;
   private highlightedTraceIds: Set<string> | null = null;
   private datasetXBounds: XBounds | null = null;
+  /** 当前绘图区左右边距，像素换算兜底时复用。 */
+  private gridInsets = { left: 76, right: 32 };
   /** 各 trace 实际渲染的点（窗口+降采样后），圆点/tooltip/游标都以它为准。 */
   private renderedPointsCache = new Map<string, Array<[number, number]>>();
   private legendHiddenTraceIds = new Set<string>();
@@ -323,6 +336,9 @@ export class WaveformChart extends ChartBase {
     const visibleTraces = this.getVisibleTraces();
     const yAxes = this.getRenderableAxes();
     const yAxisRanges = this.getRenderableYAxisRanges(yAxes);
+    const yAxisMetrics = yAxes.map((axis) => this.yAxisTextMetrics(axis, yAxisRanges.get(axis.id)));
+    const gridInsets = this.gridInsetsFor(yAxes, yAxisMetrics);
+    this.gridInsets = gridInsets;
     const visibleColors = visibleTraces.map((trace, index) => this.colorForTrace(trace, index));
 
     this.renderBadges(dataset, visibleTraces);
@@ -366,8 +382,8 @@ export class WaveformChart extends ChartBase {
       grid: {
         show: true,
         top: 46,
-        left: 76,
-        right: yAxes.length > 1 ? 76 : 32,
+        left: gridInsets.left,
+        right: gridInsets.right,
         bottom: 54,
         containLabel: false,
         borderColor: "#b8c0cc",
@@ -395,7 +411,7 @@ export class WaveformChart extends ChartBase {
         minorTick: { show: dataset.xAxis.scale !== "log" },
         minorSplitLine: { show: dataset.xAxis.scale !== "log", lineStyle: { color: "#edf0f4" } },
       },
-      yAxis: yAxes.map((axis, index) => this.buildYAxisConfig(axis, index, yAxisRanges)),
+      yAxis: yAxes.map((axis, index) => this.buildYAxisConfig(axis, index, yAxisRanges, yAxisMetrics[index])),
       series: [
         ...visibleTraces.map((trace, index) => this.buildTraceSeries(trace, index, yAxes)),
         ...yAxes.map((axis) => this.buildCursorSeries(axis)),
@@ -436,6 +452,7 @@ export class WaveformChart extends ChartBase {
     axis: WaveformAxis,
     index: number,
     yAxisRanges: Map<string, { min: number; max: number }>,
+    metrics: YAxisTextMetrics,
   ) {
     const range = yAxisRanges.get(axis.id);
     return {
@@ -458,8 +475,8 @@ export class WaveformChart extends ChartBase {
       axisLabel: {
         color: "#5f6874",
         hideOverlap: false,
-        margin: 8,
-        width: 62,
+        margin: AXIS_LABEL_MARGIN,
+        width: axisLabelWidth(metrics),
         overflow: "truncate" as const,
         align: index === 0 ? ("right" as const) : ("left" as const),
         formatter: makeAxisLabelFormatter(axis.unit, axis.scale, range?.min, range?.max),
@@ -468,6 +485,31 @@ export class WaveformChart extends ChartBase {
       splitLine: { show: index === 0, lineStyle: { color: "#dde2e8" } },
       minorTick: { show: axis.scale !== "log" },
       minorSplitLine: { show: index === 0 && axis.scale !== "log", lineStyle: { color: "#edf0f4" } },
+    };
+  }
+
+  /** 量取轴名与刻度文字宽度，取最小值/最大值和若干中间值作为最长标签。 */
+  private yAxisTextMetrics(axis: WaveformAxis, range?: { min: number; max: number }): YAxisTextMetrics {
+    const formatter = makeAxisLabelFormatter(axis.unit, axis.scale, range?.min, range?.max);
+    const usable = range && Number.isFinite(range.min) && Number.isFinite(range.max);
+    const span = usable ? range.max - range.min : 0;
+    const samples = usable
+      ? [range.min, range.max, 0, range.min + span * 0.25, range.min + span * 0.5, range.min + span * 0.75]
+      : [0];
+    return {
+      labelWidth: Math.max(...samples.map((value) => measureChartText(formatter(value)))),
+      nameWidth: measureChartText(`${axis.name}${axis.unit ? ` (${axis.unit})` : ""}`),
+    };
+  }
+
+  /** 左右边距同时容纳刻度标签与顶部轴名，取两者较大值。 */
+  private gridInsetsFor(yAxes: WaveformAxis[], metrics: YAxisTextMetrics[]): { left: number; right: number } {
+    const inset = (item: YAxisTextMetrics | undefined, base: number) => item
+      ? Math.ceil(Math.max(base, item.labelWidth + AXIS_LABEL_MARGIN + AXIS_TICK_LENGTH + AXIS_EDGE_PADDING, item.nameWidth + AXIS_EDGE_PADDING))
+      : base;
+    return {
+      left: inset(metrics[0], 76),
+      right: yAxes.length > 1 ? inset(metrics[1], 76) : 32,
     };
   }
 
@@ -487,6 +529,7 @@ export class WaveformChart extends ChartBase {
       max: range?.max,
       minInterval: axisMinInterval(axis.unit, axis.scale, range?.min, range?.max),
       axisLabel: {
+        width: axisLabelWidth(this.yAxisTextMetrics(axis, range)),
         formatter: makeAxisLabelFormatter(axis.unit, axis.scale, range?.min, range?.max),
       },
     };
@@ -1459,17 +1502,23 @@ export class WaveformChart extends ChartBase {
         height: Math.max(1, Math.abs(bottom - top)),
       };
     }
+    const insets = this.gridInsets;
     return {
-      left: 76,
-      right: Math.max(77, this.el.clientWidth - 32),
+      left: insets.left,
+      right: Math.max(insets.left + 1, this.el.clientWidth - insets.right),
       top: 46,
       bottom: Math.max(47, this.el.clientHeight - 54),
-      width: Math.max(1, this.el.clientWidth - 108),
+      width: Math.max(1, this.el.clientWidth - insets.left - insets.right),
       height: Math.max(1, this.el.clientHeight - 100),
     };
   }
 }
 
+
+/** 刻度标签宽度按实测值放宽，避免单位或整数位变化时被省略号截断。 */
+function axisLabelWidth(metrics: YAxisTextMetrics): number {
+  return Math.ceil(metrics.labelWidth) + AXIS_EDGE_PADDING;
+}
 
 function normalizePixel(pixel: number | number[], index: number): number {
   return Array.isArray(pixel) ? Number(pixel[index]) : Number(pixel);

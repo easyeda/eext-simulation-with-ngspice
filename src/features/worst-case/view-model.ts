@@ -101,11 +101,15 @@ function findTraceForProbe(dataset: WaveformDataset, probe: string): WaveformTra
 
 function probeNameCandidates(value: string): Set<string> {
 	const text = normalizeTraceText(value);
-	// 数字探针曲线名带 "digital" 后缀,剥离后再生成候选,
-	// 否则 "out digital" 匹配不上探针节点 "out"。
-	const digitalBase = text.replace(/digital$/i, "");
-	const unwrapped = digitalBase.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
-	return new Set([text, digitalBase, unwrapped, `v(${unwrapped})`, `i(${unwrapped})`].map(normalizeTraceText).filter(Boolean));
+	const stripped = text.replace(/(gain|phase)$/i, "").replace(/digital$/i, "");
+	const result = new Set<string>();
+	for (const item of new Set([text, stripped].filter(Boolean))) {
+		const unwrapped = item.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
+		for (const candidate of [item, unwrapped, `v(${unwrapped})`, `i(${unwrapped})`]) {
+			result.add(normalizeTraceText(candidate));
+		}
+	}
+	return result;
 }
 
 function normalizeTraceText(value: string): string {
