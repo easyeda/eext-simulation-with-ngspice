@@ -1,5 +1,7 @@
 import type { SimulationResult, WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import { t } from "../../shared/i18n";
+import type { ProbeTarget } from "../../shared/probe";
+import { dialogTraceLabel, probeNameByNode } from "../../shared/probe-display";
 import type { AnalysisOverlayHost, AnalysisTraceChoiceController } from "../analysis-presentation";
 import { downloadTextFile } from "../utils/download";
 import { exportWaveformDatasets } from "./download";
@@ -37,6 +39,7 @@ export interface WaveformControllerDependencies {
 	appendLog: (message: string) => void;
 	resizeCharts: () => void;
 	exportBaseName: (result: SimulationResult) => string;
+	probeNodes: () => ProbeTarget[];
 	/** 可选。双源 DC 结果就绪时激活底部"扫描分组"面板。 */
 	activateDcGroupsPanel?: () => void;
 }
@@ -53,6 +56,20 @@ export class WaveformController implements AnalysisOverlayHost {
 	private lastDcIssueKey = "";
 	/** 双源 DC 当前高亮的分组号（0 起）；null = 未高亮。 */
 	private selectedGroupIndex: number | null = null;
+	/** 节点 → 探针位号映射，用于弹窗与导出表头。 */
+	private probeDisplayNames = new Map<string, string>();
+
+	/** 设置探针位号映射：传给画布，弹窗若打开则重绘。 */
+	setProbeNodes(probeNodes: ProbeTarget[]): void {
+		this.probeDisplayNames = probeNameByNode(probeNodes);
+		this.chart.setProbeDisplayNames(this.probeDisplayNames);
+		if (this.isTraceDialogOpen()) this.renderTraceDialog();
+	}
+
+	/** 弹窗曲线名：节点名后附加探针位号。 */
+	private dialogName(name: string): string {
+		return dialogTraceLabel(name, this.probeDisplayNames);
+	}
 
 	constructor(
 		private readonly chart: WaveformChart,
@@ -87,6 +104,7 @@ export class WaveformController implements AnalysisOverlayHost {
 	present(result: SimulationResult): void {
 		// 波形图只显示模拟信号曲线（数字信号曲线归逻辑分析图）。
 		this.result = localizeSimulationResult(filterAnalogResult(result));
+		this.setProbeNodes(this.dependencies.probeNodes());
 		this.chart.setStaleResult(false);
 		this.traceSelection = new Map();
 		for (const dataset of this.result.datasets) {
@@ -122,6 +140,7 @@ export class WaveformController implements AnalysisOverlayHost {
 			this.clear();
 			return;
 		}
+		this.setProbeNodes(this.dependencies.probeNodes());
 		this.result = { datasets: [dataset], activeDatasetId: dataset.id };
 		this.activeDatasetId = dataset.id;
 		this.traceSelection = new Map([[dataset.id, new Set(dataset.traces.map((trace) => trace.id))]]);
@@ -309,7 +328,7 @@ export class WaveformController implements AnalysisOverlayHost {
     <label class="trace-option">
       <input type="checkbox" value="${escapeHtml(trace.id)}" ${this.dialogSelectedTraceIds.has(trace.id) ? "checked" : ""} />
       <span class="trace-swatch" style="--trace-color:${escapeHtml(color)}"></span>
-      <span class="trace-name">${escapeHtml(trace.name)}</span>
+      <span class="trace-name">${escapeHtml(this.dialogName(trace.name))}</span>
       <span class="trace-meta">${escapeHtml(metaText)}</span>
     </label>
   `;
@@ -407,7 +426,7 @@ export class WaveformController implements AnalysisOverlayHost {
 		if (!this.dialogDataset) return [];
 		const keyword = this.elements.filterInput.value.trim().toLowerCase();
 		if (!keyword) return this.dialogDataset.traces;
-		return this.dialogDataset.traces.filter((trace) => `${trace.name} ${trace.unit} ${trace.id}`.toLowerCase().includes(keyword));
+		return this.dialogDataset.traces.filter((trace) => `${this.dialogName(trace.name)} ${trace.name} ${trace.unit} ${trace.id}`.toLowerCase().includes(keyword));
 	}
 
 	private async exportCurrent(): Promise<void> {
@@ -423,6 +442,7 @@ export class WaveformController implements AnalysisOverlayHost {
 			this.elements.exportButton.disabled = true;
 			const exported = await exportWaveformDatasets(this.result.datasets, {
 				baseName: this.dependencies.exportBaseName(this.result),
+				probeNames: this.probeDisplayNames,
 			});
 			this.appendLog(t("log.waveformExported", exported.fileName, exported.datasetCount, exported.traceCount));
 		}

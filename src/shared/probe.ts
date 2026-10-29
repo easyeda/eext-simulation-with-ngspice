@@ -9,4 +9,6 @@ export interface ProbeTarget {
 	probeType?: ProbeType;
 	lowLevel?: number;
 	highLevel?: number;
+	/** 探针位号（如 PRV1），用于显示层替换节点名。 */
+	probeName?: string;
 }

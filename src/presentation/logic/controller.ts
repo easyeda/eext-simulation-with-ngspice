@@ -1,6 +1,7 @@
 import { t } from "../../shared/i18n";
 import { escapeHtml } from "../utils/format";
 import { probeNameCandidates } from "../../shared/probe-names";
+import { dialogTraceLabel, probeNameByNode } from "../../shared/probe-display";
 import type { ProbeTarget } from "../../shared/probe";
 import type { SimulationResult, WaveformTrace } from "../../shared/waveform";
 import {
@@ -47,7 +48,14 @@ export interface LogicControllerElements {
 export class LogicController {
 	private result: SimulationResult | null = null;
 	private probeNodes: ProbeTarget[] = [];
+	/** 节点 → 探针位号映射，用于曲线名替换。 */
+	private probeDisplayNames = new Map<string, string>();
 	private hasLogicData = false;
+
+	/** 弹窗曲线名：节点名后附加探针位号。 */
+	private dialogName(name: string): string {
+		return dialogTraceLabel(name, this.probeDisplayNames);
+	}
 	private viewActive = false;
 	private dialogSelectedRowIds = new Set<string>();
 
@@ -102,6 +110,8 @@ export class LogicController {
 	present(result: SimulationResult, probeNodes: ProbeTarget[]): void {
 		this.result = result;
 		this.probeNodes = probeNodes;
+		this.probeDisplayNames = probeNameByNode(probeNodes);
+		this.chart.setProbeDisplayNames(this.probeDisplayNames);
 		this.hasLogicData = false;
 
 		const logicTraces = collectLogicTraces(result);
@@ -202,7 +212,7 @@ export class LogicController {
 			<label class="trace-option">
 				<input type="checkbox" value="${escapeHtml(row.id)}" ${this.dialogSelectedRowIds.has(row.id) ? "checked" : ""} />
 				<span class="trace-swatch" style="--trace-color:${escapeHtml(rowColor(positionOf.get(row.id) ?? 0))}"></span>
-				<span class="trace-name">${escapeHtml(row.name)}</span>
+				<span class="trace-name">${escapeHtml(this.dialogName(row.name))}</span>
 			</label>
 		`).join("");
 		this.elements.traceList.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
@@ -310,7 +320,7 @@ function preferredLogicRowIds(
 
 function sameNode(name: string, node: string): boolean {
 	const wanted = new Set(probeNameCandidates(node));
-	return probeNameCandidates(name.replace(/\s+digital$/i, "").replace(/\s+\(L\)$/i, ""))
+	return probeNameCandidates(name.replace(/\s+\(L\)$/i, ""))
 		.some((candidate) => wanted.has(candidate));
 }
 
@@ -354,7 +364,5 @@ function filterPreferredToAnalogProbes(
 function traceMatchesWanted(trace: WaveformTrace, wanted: Set<string>): boolean {
 	const names = probeNameCandidates(trace.name);
 	names.push(...probeNameCandidates(trace.id));
-	const baseName = trace.name.replace(/\s+(gain|phase)$/i, "");
-	if (baseName !== trace.name) names.push(...probeNameCandidates(baseName));
 	return names.some((name) => wanted.has(name));
 }

@@ -183,6 +183,7 @@ const waveformController: WaveformController = new WaveformController(chart, {
 	exportBaseName: (result): string => getAnalysisType() === 'monte-carlo'
 		? `monte-carlo-waveform-${monteCarloController.selectedProbeLabel()}`
 		: `waveform-${result.datasets[0]?.productAnalysisType || 'analysis'}-${result.datasets[0]?.spiceCommandType || 'waveform'}`,
+	probeNodes: () => currentProbeNodes,
 	activateDcGroupsPanel: () => {
 		workbench.activateBottomPanel('dcGroups');
 		workbench.toggleBottomCollapsed(false);

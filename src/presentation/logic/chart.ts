@@ -1,5 +1,6 @@
 import type { EChartsOption } from "echarts";
 import { t } from "../../shared/i18n";
+import { traceDisplayName } from "../../shared/probe-display";
 import { axisDisplayUnit, clamp, formatWaveformValue } from "../components/chart-kit/axis-format";
 import { ChartBase } from "../components/chart-kit/echarts-chart-base";
 import { CursorLineGraphics } from "../components/chart-kit/cursor-graphics";
@@ -43,6 +44,8 @@ export class LogicChart extends ChartBase {
 	private rows: LogicRow[] = [];
 	private hiddenRowIds = new Set<string>();
 	private legendHiddenRowIds = new Set<string>();
+	/** 节点 → 探针位号映射，用于画布曲线名替换。 */
+	private probeDisplayNames = new Map<string, string>();
 	private cursorX: number | null = null;
 	private cursorDragging = false;
 	private panState: PanState | null = null;
@@ -142,6 +145,17 @@ export class LogicChart extends ChartBase {
 		if (this.cursorMode === "cursor" && this.cursorX !== null) this.updateCursorAtX();
 	}
 
+	/** 设置探针位号映射并重绘，使曲线名按位号显示。 */
+	setProbeDisplayNames(names: Map<string, string>): void {
+		this.probeDisplayNames = names;
+		if (this.rows.length) this.render();
+	}
+
+	/** 画布曲线显示名：节点名替换为探针位号。 */
+	private displayName(name: string): string {
+		return traceDisplayName(name, this.probeDisplayNames);
+	}
+
 	protected onLocaleChanged(): void {
 		this.inspector.setAriaLabel(t("chart.inspectorAria"));
 	}
@@ -150,7 +164,7 @@ export class LogicChart extends ChartBase {
 		if (!event?.selected) return;
 		const nextHidden = new Set<string>();
 		for (const row of this.getRenderableRows()) {
-			if (event.selected[row.name] === false) nextHidden.add(row.id);
+			if (event.selected[this.displayName(row.name)] === false) nextHidden.add(row.id);
 		}
 		this.legendHiddenRowIds = nextHidden;
 		if (this.cursorMode === "cursor") {
@@ -179,8 +193,8 @@ export class LogicChart extends ChartBase {
 				type: "scroll",
 				itemWidth: 20,
 				itemHeight: 12,
-				data: rows.map((row) => ({ name: row.name, icon: CHART_LEGEND_ICON })),
-				selected: Object.fromEntries(rows.map((row) => [row.name, !this.legendHiddenRowIds.has(row.id)])),
+				data: rows.map((row) => ({ name: this.displayName(row.name), icon: CHART_LEGEND_ICON })),
+				selected: Object.fromEntries(rows.map((row) => [this.displayName(row.name), !this.legendHiddenRowIds.has(row.id)])),
 				textStyle: { fontSize: 12, color: "#333" },
 			},
 			grid: { show: true, left: 40, right: 24, top: 34, bottom: 44, borderColor: "#b8c0cc", borderWidth: 1 },
@@ -239,7 +253,7 @@ export class LogicChart extends ChartBase {
 		const color = colorAt(allRows.indexOf(row));
 		return {
 			id: row.id,
-			name: row.name,
+			name: this.displayName(row.name),
 			type: "line" as const,
 			yAxisIndex: 0,
 			data: this.mapRowPoints(row.points, base),
@@ -287,7 +301,7 @@ export class LogicChart extends ChartBase {
 			const y = this.logicValueAtX(row.points, x);
 			if (y === null) continue;
 			const index = renderable.indexOf(row);
-			html += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colorAt(index)};margin-right:4px"></span>${escapeHtml(row.name)}: <b>${logicLabel(y)}</b><br/>`;
+			html += `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle;background:${colorAt(index)};margin-right:5px"></span>${escapeHtml(this.displayName(row.name))}: <b>${logicLabel(y)}</b><br/>`;
 		}
 		return `${html}</div>`;
 	}
@@ -548,7 +562,7 @@ export class LogicChart extends ChartBase {
 			unit: { label: displayUnit.label, factor: displayUnit.factor },
 			bounds: { min: bounds.min, max: bounds.max, isLog: false },
 			x: this.cursorX,
-			rows: rows.map((row) => ({ id: row.id, color: colorAt(row.index), text: `${row.name}: ${row.value}` })),
+			rows: rows.map((row) => ({ id: row.id, color: colorAt(row.index), text: `${this.displayName(row.name)}: ${row.value}` })),
 			position: {
 				pixel: Number(this.chart.convertToPixel({ xAxisIndex: 0 }, this.cursorX)),
 				boundsLeft: this.plotBounds().left,

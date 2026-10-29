@@ -1,15 +1,15 @@
 export function probeNameCandidates(value: string): string[] {
 	const text = normalizeProbeText(value);
 	if (!text) return [];
-	// 数字探针曲线名为 "<node> digital"，候选集按基础节点名生成，
-	// 让 "out digital" 能与探针 "out" / "v(out)" 匹配。
-	const digitalBase = text.replace(/\s+digital$/, "");
-	const unwrapped = digitalBase.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
-	const scoped = normalizeScopeProbeNode(digitalBase);
+	// AC 曲线名带 "gain"/"phase" 后缀、数字曲线名带 "digital" 后缀，
+	// 剥离后再生成候选，否则探针节点匹配不上对应曲线。
+	const base = text.replace(/\s+(gain|phase)$/i, "").replace(/\s+digital$/, "");
+	const unwrapped = base.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
+	const scoped = normalizeScopeProbeNode(base);
 	const scopedUnwrapped = scoped.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
 	return [...new Set([
 		text,
-		digitalBase,
+		base,
 		unwrapped,
 		`v(${unwrapped})`,
 		`i(${unwrapped})`,

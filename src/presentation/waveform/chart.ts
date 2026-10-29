@@ -1,5 +1,6 @@
 import type { EChartsOption } from "echarts";
 import { t } from "../../shared/i18n";
+import { traceDisplayName } from "../../shared/probe-display";
 import type { WaveformAxis, WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import {
 	axisDisplayUnit,
@@ -123,6 +124,8 @@ export class WaveformChart extends ChartBase {
   private panState: PanState | null = null;
   /** true = 当前展示的是上一次成功运行的结果（本次运行失败时保留旧图）。 */
   private staleResult = false;
+  /** 节点 → 探针位号映射，用于画布曲线名替换。 */
+  private probeDisplayNames = new Map<string, string>();
   /** 每次渲染完成后通知的回调（叠加层取绘图区几何并重绘）。 */
   private readonly renderCallbacks = { onViewChange: new Set<() => void>() };
   private view: ViewState = {
@@ -314,6 +317,17 @@ export class WaveformChart extends ChartBase {
     if (this.dataset) this.renderBadges(this.dataset, this.getVisibleTraces());
   }
 
+  /** 设置探针位号映射并重绘，使曲线名按位号显示。 */
+  setProbeDisplayNames(names: Map<string, string>): void {
+    this.probeDisplayNames = names;
+    if (this.dataset) this.render();
+  }
+
+  /** 画布曲线显示名：节点名替换为探针位号。 */
+  private displayName(name: string): string {
+    return traceDisplayName(name, this.probeDisplayNames);
+  }
+
   private renderBadges(dataset: WaveformDataset, visibleTraces: WaveformTrace[]) {
     const isMcScaffold = dataset.id === "mc-scaffold";
     const badgeItems = isMcScaffold
@@ -375,8 +389,8 @@ export class WaveformChart extends ChartBase {
         type: "scroll",
         itemWidth: 20,
         itemHeight: 12,
-        data: [...new Set(visibleTraces.filter((trace) => !trace.name.startsWith("__")).map((trace) => trace.name))].map((name) => ({ name, icon: CHART_LEGEND_ICON })),
-        selected: Object.fromEntries(visibleTraces.map((trace) => [trace.name, !this.legendHiddenTraceIds.has(trace.id)])),
+        data: [...new Set(visibleTraces.filter((trace) => !trace.name.startsWith("__")).map((trace) => this.displayName(trace.name)))].map((name) => ({ name, icon: CHART_LEGEND_ICON })),
+        selected: Object.fromEntries(visibleTraces.map((trace) => [this.displayName(trace.name), !this.legendHiddenTraceIds.has(trace.id)])),
         textStyle: { fontSize: 12, color: "#333" },
       },
       grid: {
@@ -546,7 +560,7 @@ export class WaveformChart extends ChartBase {
     const dimmed = Boolean(this.highlightedTraceIds?.size) && !highlighted;
     return {
       id: trace.id,
-      name: trace.name,
+      name: this.displayName(trace.name),
       type: "line" as const,
       yAxisIndex: axisIndex,
       data: rendered.points,
@@ -694,7 +708,7 @@ export class WaveformChart extends ChartBase {
       this.view.xMax,
     )}</b><br/>`;
     const rows: Array<{ marker: string; name: string; value: number | null; unit: string }> = [];
-    for (const trace of this.getInspectionTraces()) {
+    for (const [index, trace] of this.getInspectionTraces().entries()) {
       if (rows.length >= CURSOR_LABEL_MAX_ROWS) break;
       const rendered = this.getRenderedPoints(trace);
       let value: number | null;
@@ -706,8 +720,9 @@ export class WaveformChart extends ChartBase {
         value = interpolateSeriesValue(rendered, x);
       }
       rows.push({
-        marker: trace.color ? `<span style="display:inline-block;width:10px;height:2px;vertical-align:middle;background:${trace.color};margin-right:4px"></span>` : "",
-        name: trace.name,
+        // 与游标面板同款圆点：8px 圆形、5px 间距。
+        marker: `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle;background:${this.colorForTrace(trace, index)};margin-right:5px"></span>`,
+        name: this.displayName(trace.name),
         value,
         unit: trace.unit,
       });
@@ -1257,7 +1272,7 @@ export class WaveformChart extends ChartBase {
       rows.push({
         traceId: trace.id,
         color: this.colorForTrace(trace, index),
-        text: `${trace.name}: ${formatInspectionValue(y, trace.unit)}`,
+        text: `${this.displayName(trace.name)}: ${formatInspectionValue(y, trace.unit)}`,
       });
     }
     return rows;
@@ -1368,7 +1383,7 @@ export class WaveformChart extends ChartBase {
     if (!this.dataset || !event?.selected) return;
     const nextHidden = new Set<string>();
     for (const trace of this.getVisibleTraces()) {
-      if (event.selected[trace.name] === false) nextHidden.add(trace.id);
+      if (event.selected[this.displayName(trace.name)] === false) nextHidden.add(trace.id);
     }
     this.legendHiddenTraceIds = nextHidden;
     if (this.cursorMode === "cursor") {

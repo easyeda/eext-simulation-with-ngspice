@@ -5,6 +5,8 @@ export interface ProbeDescriptor {
 	node: string;
 	lowLevel?: number;
 	highLevel?: number;
+	/** 探针位号（如 PRV1）。 */
+	probeName?: string;
 }
 
 export function parseProbeDescriptors(value: unknown): ProbeDescriptor[] | null {
@@ -15,6 +17,7 @@ export function parseProbeDescriptors(value: unknown): ProbeDescriptor[] | null 
 	for (const item of value) {
 		if (!isRecord(item)) continue;
 		const node = readNode(item.node);
+		const probeName = readNode(item.probeName);
 		const lowLevel = readOptionalFiniteNumber(item.lowLevel);
 		const highLevel = readOptionalFiniteNumber(item.highLevel);
 		// 单个探针字段非法只跳过该探针，不再作废整份列表：
@@ -34,6 +37,7 @@ export function parseProbeDescriptors(value: unknown): ProbeDescriptor[] | null 
 		const probe: ProbeDescriptor = {
 			kind: item.kind,
 			node,
+			...(probeName ? { probeName } : {}),
 			...(lowLevel === undefined ? {} : { lowLevel }),
 			...(highLevel === undefined ? {} : { highLevel }),
 		};
@@ -49,6 +53,7 @@ export function probeDescriptorsToTargets(probes: ProbeDescriptor[]): ProbeTarge
 	return probes.map((probe) => ({
 		node: probe.node,
 		...(probe.kind === "digital" ? { probeType: 1 } : {}),
+		...(probe.probeName ? { probeName: probe.probeName } : {}),
 		...(probe.lowLevel === undefined ? {} : { lowLevel: probe.lowLevel }),
 		...(probe.highLevel === undefined ? {} : { highLevel: probe.highLevel }),
 	}));
@@ -63,6 +68,7 @@ export function parseLegacyProbeDescriptors(value: unknown): ProbeDescriptor[] |
 	for (const item of value) {
 		if (!isRecord(item)) continue;
 		const node = readNode(item.node ?? item.probeNode ?? item.ProbeNode ?? item.id);
+		const probeName = readNode(item.probeName ?? item.ProbeName);
 		const probeType = readOptionalFiniteNumber(item.probeType ?? item.ProbeType);
 		const lowLevel = readOptionalFiniteNumber(item.lowLevel ?? item.LowLevel);
 		const highLevel = readOptionalFiniteNumber(item.highLevel ?? item.hightLevel ?? item.HighLevel ?? item.HightLevel);
@@ -74,6 +80,7 @@ export function parseLegacyProbeDescriptors(value: unknown): ProbeDescriptor[] |
 		const probe: ProbeDescriptor = {
 			kind,
 			node,
+			...(probeName ? { probeName } : {}),
 			...(kind === "digital" && lowLevel !== undefined ? { lowLevel } : {}),
 			...(kind === "digital" && highLevel !== undefined ? { highLevel } : {}),
 		};

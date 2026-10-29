@@ -1,5 +1,7 @@
 import type { ProbeTarget } from "../../shared/probe";
 import type { WaveformDataset, WaveformTrace } from "../../shared/waveform";
+import { probeNameCandidates } from "../../shared/probe-names";
+import { dialogTraceLabel, probeNameByNode } from "../../shared/probe-display";
 import type { WorstCaseResult, WorstCaseRunResult } from "./types";
 import { worstCaseTechnicalRunLabel } from "./case-label";
 
@@ -18,16 +20,17 @@ export function buildWorstCaseProbeOptions(
 ): WorstCaseProbeOption[] {
 	const dataset = result.finalDatasets[0];
 	if (!dataset) return [];
+	const probeNames = probeNameByNode(probeNodes);
 	const options: WorstCaseProbeOption[] = [];
 	const used = new Set<string>();
 	for (const probe of probeNodes) {
 		const trace = findTraceForProbe(dataset, probe.node);
 		if (!trace || used.has(trace.id)) continue;
 		used.add(trace.id);
-		options.push(toOption(trace, probe.node));
+		options.push(toOption(trace, dialogTraceLabel(trace.name, probeNames)));
 	}
 	if (options.length) return options;
-	return dataset.traces.slice(0, 1).map((trace) => toOption(trace, trace.name));
+	return dataset.traces.slice(0, 1).map((trace) => toOption(trace, dialogTraceLabel(trace.name, probeNames)));
 }
 
 export function buildWorstCaseOverlayDataset(
@@ -92,24 +95,11 @@ function toOption(trace: WaveformTrace, label: string): WorstCaseProbeOption {
 }
 
 function findTraceForProbe(dataset: WaveformDataset, probe: string): WaveformTrace | null {
-	const wanted = probeNameCandidates(probe);
+	const wanted = new Set(probeNameCandidates(probe));
 	return dataset.traces.find((trace) => {
 		const candidates = [...probeNameCandidates(trace.name), ...probeNameCandidates(trace.id)];
 		return candidates.some((candidate) => wanted.has(candidate));
 	}) || null;
-}
-
-function probeNameCandidates(value: string): Set<string> {
-	const text = normalizeTraceText(value);
-	const stripped = text.replace(/(gain|phase)$/i, "").replace(/digital$/i, "");
-	const result = new Set<string>();
-	for (const item of new Set([text, stripped].filter(Boolean))) {
-		const unwrapped = item.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
-		for (const candidate of [item, unwrapped, `v(${unwrapped})`, `i(${unwrapped})`]) {
-			result.add(normalizeTraceText(candidate));
-		}
-	}
-	return result;
 }
 
 function normalizeTraceText(value: string): string {
@@ -120,7 +110,8 @@ function normalizeProbeOptionId(value: string): string {
 	return normalizeTraceText(value).replace(/[^a-z0-9]+/g, "-") || "probe";
 }
 
-function runColor(run: WorstCaseRunResult): string {
+function runColor(run: WorstCaseRunResult): string 
+{
 	if (run.kind === "worst-low") return "#2563eb";
 	if (run.kind === "worst-high") return "#dc2626";
 	return "#111827";

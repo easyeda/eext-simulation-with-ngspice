@@ -1,9 +1,14 @@
 import JSZip from 'jszip';
 import type { WaveformDataset, WaveformTrace } from '../../shared/waveform';
+import { traceDisplayName } from '../../shared/probe-display';
+
+const emptyProbeNames = new Map<string, string>();
 
 export interface WaveformExportOptions {
 	baseName?: string;
 	generatedAt?: Date;
+	/** 节点 → 探针位号映射，表头按位号显示。 */
+	probeNames?: Map<string, string>;
 }
 
 export interface WaveformExportResult {
@@ -28,7 +33,7 @@ export async function createWaveformExportArtifact(
 
 	if (datasets.length === 1) {
 		const fileName = `${baseName}-${timestamp}.csv`;
-		const blob = new Blob([waveformDatasetToCsv(datasets[0])], { type: 'text/csv;charset=utf-8' });
+		const blob = new Blob([waveformDatasetToCsv(datasets[0], options.probeNames)], { type: 'text/csv;charset=utf-8' });
 		return { fileName, blob, datasetCount: 1, traceCount };
 	}
 
@@ -37,24 +42,24 @@ export async function createWaveformExportArtifact(
 		const datasetName = sanitizeFileName(
 			`${String(index + 1).padStart(2, '0')}-${dataset.productAnalysisType}-${dataset.spiceCommandType}-${dataset.title || dataset.id}`,
 		);
-		zip.file(`${datasetName}.csv`, waveformDatasetToCsv(dataset));
+		zip.file(`${datasetName}.csv`, waveformDatasetToCsv(dataset, options.probeNames));
 	});
 	const fileName = `${baseName}-${timestamp}.zip`;
 	const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 	return { fileName, blob, datasetCount: datasets.length, traceCount };
 }
 
-export function waveformDatasetToCsv(dataset: WaveformDataset): string {
+export function waveformDatasetToCsv(dataset: WaveformDataset, probeNames?: Map<string, string>): string {
 	const content = tracesShareXAxis(dataset.traces)
-		? datasetToWideCsv(dataset)
-		: datasetToLongCsv(dataset);
+		? datasetToWideCsv(dataset, probeNames)
+		: datasetToLongCsv(dataset, probeNames);
 	return `\uFEFF${content}`;
 }
 
-function datasetToWideCsv(dataset: WaveformDataset): string {
+function datasetToWideCsv(dataset: WaveformDataset, probeNames?: Map<string, string>): string {
 	const xHeader = axisHeader(dataset.xAxis.name || 'x', dataset.xAxis.unit);
 	// 双源 DC 分组曲线同名：列头补组标签（"v(out) · V2=1 V (V)"）保留分组信息。
-	const headers = [xHeader, ...dataset.traces.map((trace) => axisHeader(trace.name, trace.unit, trace.meta?.groupLabel))];
+	const headers = [xHeader, ...dataset.traces.map((trace) => axisHeader(traceDisplayName(trace.name, probeNames ?? emptyProbeNames), trace.unit, trace.meta?.groupLabel))];
 	const rowCount = dataset.traces[0]?.points.length || 0;
 	const rows = [headers.map(csvCell).join(',')];
 	for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
@@ -66,7 +71,7 @@ function datasetToWideCsv(dataset: WaveformDataset): string {
 	return rows.join('\r\n');
 }
 
-function datasetToLongCsv(dataset: WaveformDataset): string {
+function datasetToLongCsv(dataset: WaveformDataset, probeNames?: Map<string, string>): string {
 	const headers = [
 		'datasetId',
 		'productAnalysisType',
@@ -82,7 +87,8 @@ function datasetToLongCsv(dataset: WaveformDataset): string {
 	const rows = [headers.join(',')];
 	for (const trace of dataset.traces) {
 		// 双源 DC 分组曲线：traceName 补组标签，保留分组信息。
-		const traceName = trace.meta?.groupLabel ? `${trace.name} · ${trace.meta.groupLabel}` : trace.name;
+		const displayName = traceDisplayName(trace.name, probeNames ?? emptyProbeNames);
+		const traceName = trace.meta?.groupLabel ? `${displayName} · ${trace.meta.groupLabel}` : displayName;
 		for (const [x, y] of trace.points) {
 			rows.push([
 				dataset.id,

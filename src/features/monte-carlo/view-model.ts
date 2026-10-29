@@ -3,6 +3,8 @@ import type {
 	WaveformTrace,
 } from '../../shared/waveform';
 import type { ProbeTarget } from '../../shared/probe';
+import { probeNameCandidates } from '../../shared/probe-names';
+import { dialogTraceLabel, probeNameByNode } from '../../shared/probe-display';
 import type { MonteCarloResult } from './types';
 import type { McWaveformStore } from './waveform-store';
 
@@ -28,6 +30,7 @@ export function buildMonteCarloProbeOptionsFromTemplate(
 ): MonteCarloProbeOption[] {
 	const dataset = template;
 	if (!dataset) return [];
+	const probeNames = probeNameByNode(probeNodes);
 	const options: MonteCarloProbeOption[] = [];
 	const used = new Set<string>();
 
@@ -39,7 +42,7 @@ export function buildMonteCarloProbeOptionsFromTemplate(
 			used.add(trace.id);
 			options.push({
 				id: normalizeProbeOptionId(trace.id),
-				label: trace.name,
+				label: dialogTraceLabel(trace.name, probeNames),
 				traceId: trace.id,
 				traceName: trace.name,
 				axisId: trace.axisId,
@@ -51,7 +54,7 @@ export function buildMonteCarloProbeOptionsFromTemplate(
 	if (options.length) return options;
 	return dataset.traces.slice(0, 1).map((trace) => ({
 		id: normalizeProbeOptionId(trace.id),
-		label: trace.name,
+		label: dialogTraceLabel(trace.name, probeNames),
 		traceId: trace.id,
 		traceName: trace.name,
 		axisId: trace.axisId,
@@ -88,7 +91,7 @@ function firstMonteCarloSampleDataset(result: MonteCarloResult): WaveformDataset
 
 /** 找出探针节点对应的所有 trace(AC 下同节点会有 gain 与 phase 两条)。 */
 function findTraceVariantsForProbe(dataset: WaveformDataset, probe: string): WaveformTrace[] {
-	const wanted = probeNameCandidates(probe);
+	const wanted = new Set(probeNameCandidates(probe));
 	return dataset.traces.filter((trace) => {
 		const candidates = [...probeNameCandidates(trace.name), ...probeNameCandidates(trace.id)];
 		return candidates.some((candidate) => wanted.has(candidate));
@@ -108,21 +111,6 @@ export function probeTraceNamesForProbes(dataset: WaveformDataset, probes: Probe
 		}
 	}
 	return names;
-}
-
-function probeNameCandidates(value: string): Set<string> {
-	const text = normalizeTraceText(value);
-	// AC 分析的曲线名带 "gain"/"phase" 后缀,数字探针曲线名带 "digital" 后缀,
-	// 剥离后再生成候选,否则按节点筛选会漏掉 AC 波形与数字波形。
-	const stripped = text.replace(/(gain|phase)$/i, "").replace(/digital$/i, "");
-	const result = new Set<string>();
-	for (const item of new Set([text, stripped].filter(Boolean))) {
-		const unwrapped = item.replace(/^v\((.*)\)$/i, "$1").replace(/^i\((.*)\)$/i, "$1");
-		for (const candidate of [item, unwrapped, `v(${unwrapped})`, `i(${unwrapped})`]) {
-			result.add(normalizeTraceText(candidate));
-		}
-	}
-	return result;
 }
 
 function normalizeTraceText(value: string): string {
