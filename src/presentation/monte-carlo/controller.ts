@@ -360,12 +360,11 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 			return;
 		}
 		this.ensureOverlayCanvas();
-		// scaffold：隐形极值线（全部样本的全局 min/max）只用于撑出覆盖全部数据的轴范围，
-		// ECharts 不绘制它（曲线名以 "__" 开头的会被隐藏）；波形本体全部在画布层。
+
 		const scaffold = this.buildScaffoldDataset(template, meta);
 		if (!scaffold) return;
 		this.scaffoldDataset = scaffold;
-		this.host.setDataset(scaffold, { keepView: true });
+		this.host.setDataset(scaffold);
 		this.overlayCanvas!.clear();
 		for (const series of store.getSeries(meta.traceName)) {
 			this.overlayCanvas!.addSample({
@@ -391,8 +390,8 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		if (!template) return null;
 		const store = this.streamStore ?? this.result?.waveformStore;
 		if (!store) return null;
-		const yAxis = template.yAxes[0];
-		const axisId = yAxis?.id || "y1";
+		const yAxis = template.yAxes.find((axis) => axis.id === meta.axisId) ?? template.yAxes[0];
+		const axisId = yAxis?.id || meta.axisId || "y1";
 		let gMin = Number.POSITIVE_INFINITY;
 		let gMax = Number.NEGATIVE_INFINITY;
 		for (const series of store.getSeries(meta.traceName)) {

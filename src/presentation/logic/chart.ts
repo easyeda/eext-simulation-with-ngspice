@@ -1,7 +1,7 @@
 import type { EChartsOption } from "echarts";
 import { t } from "../../shared/i18n";
 import { traceDisplayName } from "../../shared/probe-display";
-import { axisDisplayUnit, clamp, formatWaveformValue } from "../components/chart-kit/axis-format";
+import { axisDisplayUnit, clamp, formatCanvasNumber } from "../components/chart-kit/axis-format";
 import { ChartBase } from "../components/chart-kit/echarts-chart-base";
 import { CursorLineGraphics } from "../components/chart-kit/cursor-graphics";
 import { CursorInspectorPanel } from "../components/chart-kit/cursor-inspector";
@@ -203,7 +203,7 @@ export class LogicChart extends ChartBase {
 				scale: true,
 				min: this.view.xMin,
 				max: this.view.xMax,
-				axisLabel: { color: "#5f6874", formatter: (value: number) => formatAxisValue(value) },
+				axisLabel: { color: "#5f6874", formatter: (value: number) => formatCanvasNumber(value) },
 				axisLine: { onZero: false, lineStyle: { color: "#87909e" } },
 				splitLine: { show: true, lineStyle: { color: "#dde2e8" } },
 			},
@@ -295,7 +295,7 @@ export class LogicChart extends ChartBase {
 			? this.cursorX
 			: this.hoverX ?? Number(visibleParams[0].axisValue);
 		const unit = axisDisplayUnit("s", this.view.xMin, this.view.xMax, x);
-		const xText = unit.label ? `${formatWaveformValue(x / unit.factor)} ${unit.label}` : formatWaveformValue(x / unit.factor);
+		const xText = unit.label ? `${formatCanvasNumber(x / unit.factor)} ${unit.label}` : formatCanvasNumber(x / unit.factor);
 		let html = `<div class="chart-tip"><b>${escapeHtml(t("chart.logicXLabel"))}: ${xText}</b><br/>`;
 		for (const row of this.getDisplayedRows()) {
 			const y = this.logicValueAtX(row.points, x);
@@ -664,13 +664,6 @@ export class LogicChart extends ChartBase {
 		const bottom = Math.max(45, this.el.clientHeight - 24);
 		return { left, right, bottom, width: Math.max(1, right - left) };
 	}
-}
-
-function formatAxisValue(value: number): string {
-	if (!Number.isFinite(value)) return "";
-	if (value === 0) return "0";
-	if (Math.abs(value) >= 1e-4) return Number(value.toPrecision(5)).toString();
-	return value.toExponential(3);
 }
 
 /** 节点名自然排序。 */

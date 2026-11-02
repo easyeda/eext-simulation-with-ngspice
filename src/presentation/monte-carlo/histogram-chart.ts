@@ -1,7 +1,8 @@
 import type { EChartsOption } from 'echarts';
-import { getNumberLocale, t } from '../../shared/i18n';
+import { t } from '../../shared/i18n';
 import { ChartBase } from '../components/chart-kit/echarts-chart-base';
-import { formatInteger } from '../components/chart-kit/axis-format';
+import { formatCanvasNumber, formatInteger } from '../components/chart-kit/axis-format';
+import { measureChartText } from '../components/chart-kit/text-metrics';
 import { buildHistogramBins, type HistogramMeasurement } from '../../features/monte-carlo/histogram';
 
 export type HistogramYAxisMode = 'count' | 'percent';
@@ -88,17 +89,19 @@ export class MonteCarloHistogramChart extends ChartBase {
 			`<span class="chart-meta">${t('chart.histogramMeta', formatInteger(total), bins.length)}</span>`,
 		);
 
+		// markLine 默认标签显示原始数值，这里显式格式化，避免长数字画出画布。
+		const meanLabel = t('chart.mean', formatCanvasNumber(measurement.summary.mean));
 		const markLines: any[] = [{
 			xAxis: measurement.summary.mean,
-			name: t('chart.mean', formatNumber(measurement.summary.mean)),
+			name: meanLabel,
 			lineStyle: { color: '#d46b08', width: 2 },
-			label: { color: '#ad4e00' },
+			label: { color: '#ad4e00', formatter: meanLabel },
 		}];
 		if (this.specVisible && typeof measurement.spec?.min === 'number') {
-			markLines.push({ xAxis: measurement.spec.min, name: 'LSL', lineStyle: { color: '#cf1322', type: 'dashed' }, label: { color: '#a8071a' } });
+			markLines.push({ xAxis: measurement.spec.min, name: 'LSL', lineStyle: { color: '#cf1322', type: 'dashed' }, label: { color: '#a8071a', formatter: 'LSL' } });
 		}
 		if (this.specVisible && typeof measurement.spec?.max === 'number') {
-			markLines.push({ xAxis: measurement.spec.max, name: 'USL', lineStyle: { color: '#cf1322', type: 'dashed' }, label: { color: '#a8071a' } });
+			markLines.push({ xAxis: measurement.spec.max, name: 'USL', lineStyle: { color: '#cf1322', type: 'dashed' }, label: { color: '#a8071a', formatter: 'USL' } });
 		}
 
 		const option: EChartsOption = {
@@ -115,14 +118,15 @@ export class MonteCarloHistogramChart extends ChartBase {
 					const bin = bins[params.dataIndex];
 					return t(
 						'chart.histogramTooltip',
-						formatNumber(bin.lower),
-						formatNumber(bin.upper),
+						formatCanvasNumber(bin.lower),
+						formatCanvasNumber(bin.upper),
 						bin.count,
-						formatNumber(bin.count / total * 100, 3),
+						formatCanvasNumber(bin.count / total * 100),
 					);
 				},
 			},
-			grid: { show: true, left: 68, right: 32, top: 34, bottom: 56, borderColor: '#b8c0cc', borderWidth: 1 },
+			// 左侧留白按纵轴标签实际宽度算，数值再长也不会被画出画布。
+			grid: { show: true, left: histogramLeftInset(yAxisMax), right: 32, top: 34, bottom: 56, borderColor: '#b8c0cc', borderWidth: 1 },
 			xAxis: {
 				type: 'value',
 				min: minimum - axisPadding,
@@ -130,7 +134,7 @@ export class MonteCarloHistogramChart extends ChartBase {
 				name: measurement.unit ? `${measurement.label} (${measurement.unit})` : measurement.label,
 				nameLocation: 'middle',
 				nameGap: 34,
-				axisLabel: { color: '#5f6874', formatter: (value: number) => formatNumber(value, 5) },
+				axisLabel: { color: '#5f6874', hideOverlap: true, formatter: (value: number) => formatCanvasNumber(value) },
 				axisLine: { lineStyle: { color: '#87909e' } },
 				splitLine: { show: false },
 			},
@@ -140,7 +144,7 @@ export class MonteCarloHistogramChart extends ChartBase {
 				min: 0,
 				max: yAxisMax,
 				minInterval: this.yAxisMode === 'count' ? 1 : undefined,
-				axisLabel: { color: '#5f6874' },
+				axisLabel: { color: '#5f6874', formatter: (value: number) => formatCanvasNumber(value) },
 				axisLine: { show: true, lineStyle: { color: '#87909e' } },
 				splitLine: { lineStyle: { color: '#e3e7ec' } },
 			},
@@ -162,7 +166,11 @@ export class MonteCarloHistogramChart extends ChartBase {
 	}
 }
 
-function formatNumber(value: number, digits = 6): string {
-	if (!Number.isFinite(value)) return '-';
-	return value.toLocaleString(getNumberLocale(), { maximumSignificantDigits: digits });
+/** 纵轴标签最长值（0 与上限）决定左边距，至少保留 68px。 */
+function histogramLeftInset(yAxisMax: number): number {
+	const labelWidth = Math.max(
+		measureChartText(formatCanvasNumber(0)),
+		measureChartText(formatCanvasNumber(yAxisMax)),
+	);
+	return Math.ceil(Math.max(68, labelWidth + 26));
 }

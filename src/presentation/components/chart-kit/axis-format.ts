@@ -33,7 +33,7 @@ export function formatInspectionValue(
 ): string {
 	if (!Number.isFinite(value)) return "";
 	const displayUnit = axisDisplayUnit(unit, min, max, value);
-	const formatted = formatWaveformValue(value / displayUnit.factor);
+	const formatted = formatCanvasNumber(value / displayUnit.factor);
 	return displayUnit.label ? `${formatted} ${displayUnit.label}` : formatted;
 }
 
@@ -137,7 +137,7 @@ function formatAxisValue(value: number, unit: string): string {
 	if (unit === "s") return scaleUnit(value, [["s", 1], ["ms", 1e-3], ["us", 1e-6], ["ns", 1e-9], ["ps", 1e-12]]);
 	if (unit === "V") return scaleUnit(value, [["kV", 1e3], ["V", 1], ["mV", 1e-3], ["uV", 1e-6]]);
 	if (unit === "A") return scaleUnit(value, [["A", 1], ["mA", 1e-3], ["uA", 1e-6], ["nA", 1e-9]]);
-	const formatted = formatWaveformValue(value);
+	const formatted = formatCanvasNumber(value);
 	return unit ? `${formatted} ${unit}` : formatted;
 }
 
@@ -145,7 +145,7 @@ function scaleUnit(value: number, units: Array<[string, number]>): string {
 	const abs = Math.abs(value);
 	const selected = units.find(([, factor]) => abs >= factor) ?? units[units.length - 1];
 	const scaled = value / selected[1];
-	return `${formatWaveformValue(scaled)} ${selected[0]}`;
+	return `${formatCanvasNumber(scaled)} ${selected[0]}`;
 }
 
 function formatAxisTickValue(
@@ -160,13 +160,13 @@ function formatAxisTickValue(
 
 	const unitGroup = unitScaleGroup(unit);
 	if (!unitGroup) {
-		return `${formatWaveformValue(value)}${unit ? ` ${unit}` : ""}`;
+		return `${formatCanvasNumber(value)}${unit ? ` ${unit}` : ""}`;
 	}
 
 	const selected = selectAxisUnit(unitGroup, min, max, value);
 	const factor = selected[1];
 	const scaledValue = value / factor;
-	return `${formatWaveformValue(scaledValue)} ${selected[0]}`;
+	return `${formatCanvasNumber(scaledValue)} ${selected[0]}`;
 }
 
 function unitScaleGroup(unit: string): Array<[string, number]> | null {
@@ -209,6 +209,20 @@ function significantResolution(reference: number, digits = 5): number {
 	const abs = Math.abs(reference);
 	if (!Number.isFinite(abs) || abs === 0) return 10 ** (1 - digits);
 	return 10 ** (Math.floor(Math.log10(abs)) - digits + 1);
+}
+
+/** 画布数值统一格式：最多 6 位有效数字；过大/过小用科学计数法 */
+export function formatCanvasNumber(value: number): string {
+	if (!Number.isFinite(value)) return "";
+	if (value === 0) return "0";
+	const rounded = Number(value.toPrecision(6));
+	const absolute = Math.abs(rounded);
+	if (absolute >= 1e6 || absolute < 1e-4) {
+		return value.toExponential(5)
+			.replace(/\.?0+e/, "e")
+			.replace("e+", "e");
+	}
+	return String(rounded);
 }
 
 export function formatWaveformValue(value: number): string {

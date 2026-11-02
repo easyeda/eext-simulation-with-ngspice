@@ -40,8 +40,16 @@ export abstract class ChartBase {
 		const width = el.clientWidth || el.offsetWidth || options.fallbackWidth || 600;
 		const height = el.clientHeight || el.offsetHeight || options.fallbackHeight || 400;
 		this.chart = echarts.init(el, null, { renderer: "canvas", width, height });
-		window.addEventListener("resize", () => this.resize());
+		if (typeof ResizeObserver !== "undefined") {
+			this.resizeObserver = new ResizeObserver(() => this.resize());
+			this.resizeObserver.observe(el);
+		}
+		else {
+			window.addEventListener("resize", () => this.resize());
+		}
 	}
+
+	private resizeObserver: ResizeObserver | null = null;
 
 	resize(): void {
 		const width = this.el.clientWidth;
