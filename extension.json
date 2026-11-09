@@ -27,7 +27,7 @@
 		"simulationSchematicNGspice": [
 			{
 				"id": "JlcNgspiceWaveform",
-				"title": "NGspice 仿真",
+				"title": "NGspice电路仿真",
 				"menuItems": [
 					{
 						"id": "OpenWaveformPanel",
