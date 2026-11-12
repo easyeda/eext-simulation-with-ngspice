@@ -32,6 +32,13 @@ export class McOverlayCanvas {
 	private series: McOverlaySample[] = [];
 	private highlightedSampleIndex: number | null = null;
 	private displayMode: "line" | "points" | "both" = "line";
+	private lastDpr = 0;
+
+	/** 浏览器缩放会改变画布，需要重新调整画布尺寸。 */
+	private readonly handleWindowResize = (): void => {
+		if(!this.canvas) return;
+		if(this.resizeBitmap()) this.redraw();
+	};
 
 	attach(container: HTMLElement): void {
 		this.detach();
@@ -41,20 +48,25 @@ export class McOverlayCanvas {
 		Object.assign(canvas.style, {
 			position: "absolute",
 			inset: "0",
+			width: "100%",
+			height: "100%",
 			pointerEvents: "none",
 			zIndex: "6",
 		} as CSSStyleDeclaration);
 		container.appendChild(canvas);
 		this.canvas = canvas;
+		window.addEventListener("resize", this.handleWindowResize);
 	}
 
 	detach(): void {
+		window.removeEventListener("resize", this.handleWindowResize);
 		this.canvas?.remove();
 		this.canvas = null;
 		this.ctx = null;
 		this.container = null;
 		this.series = [];
 		this.geometry = null;
+		this.lastDpr = 0;
 	}
 
 	/** ECharts 渲染后回调的几何（数据范围 + 像素矩形）；变更即整体重绘。 */
@@ -65,8 +77,8 @@ export class McOverlayCanvas {
 			this.clearBitmap();
 			return;
 		}
-		this.resizeBitmap();
-		if (changed || this.ctx === null) this.redraw();
+		const bitmapChanged = this.resizeBitmap();
+		if (changed || this.ctx === null || bitmapChanged) this.redraw();
 	}
 
 	/** 立即模式核心：只画这一条新样本，不影响已绘制的任何内容。 */
@@ -247,23 +259,27 @@ export class McOverlayCanvas {
 		};
 	}
 
-	private resizeBitmap(): void {
+	/** 调整画布尺寸以匹配容器和设备像素比；返回是否发生了尺寸变化。 */
+	private resizeBitmap(): boolean {
 		const canvas = this.canvas;
 		const container = this.container;
-		if (!canvas || !container) return;
+		if (!canvas || !container) return false;
 		const width = container.clientWidth;
 		const height = container.clientHeight;
 		const dpr = window.devicePixelRatio || 1;
 		const targetW = Math.max(1, Math.floor(width * dpr));
 		const targetH = Math.max(1, Math.floor(height * dpr));
-		if (canvas.width !== targetW || canvas.height !== targetH) {
+		const changed = canvas.width !== targetW || canvas.height !== targetH || this.lastDpr !== dpr;
+		if(changed){
 			canvas.width = targetW;
 			canvas.height = targetH;
+			this.lastDpr = dpr;
 		}
 		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		if (!ctx) return changed;
+		if(changed) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		this.ctx = ctx;
+		return changed;
 	}
 
 	private clearBitmap(): void {
