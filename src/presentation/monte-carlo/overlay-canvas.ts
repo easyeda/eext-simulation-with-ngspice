@@ -34,10 +34,10 @@ export class McOverlayCanvas {
 	private displayMode: "line" | "points" | "both" = "line";
 	private lastDpr = 0;
 
-	/** 浏览器缩放会改变画布，需要重新调整画布尺寸。 */
+	/** 浏览器缩放会改变 devicePixelRatio，位图需按新比例重建。 */
 	private readonly handleWindowResize = (): void => {
-		if(!this.canvas) return;
-		if(this.resizeBitmap()) this.redraw();
+		if (!this.canvas) return;
+		if (this.resizeBitmap()) this.redraw();
 	};
 
 	attach(container: HTMLElement): void {
@@ -78,7 +78,7 @@ export class McOverlayCanvas {
 			return;
 		}
 		const bitmapChanged = this.resizeBitmap();
-		if (changed || this.ctx === null || bitmapChanged) this.redraw();
+		if (changed || bitmapChanged || this.ctx === null) this.redraw();
 	}
 
 	/** 立即模式核心：只画这一条新样本，不影响已绘制的任何内容。 */
@@ -259,7 +259,7 @@ export class McOverlayCanvas {
 		};
 	}
 
-	/** 调整画布尺寸以匹配容器和设备像素比；返回是否发生了尺寸变化。 */
+	/** 同步位图尺寸与缩放比；返回位图是否被重建（重建会清空内容，调用方需重绘）。 */
 	private resizeBitmap(): boolean {
 		const canvas = this.canvas;
 		const container = this.container;
@@ -270,14 +270,14 @@ export class McOverlayCanvas {
 		const targetW = Math.max(1, Math.floor(width * dpr));
 		const targetH = Math.max(1, Math.floor(height * dpr));
 		const changed = canvas.width !== targetW || canvas.height !== targetH || this.lastDpr !== dpr;
-		if(changed){
+		if (changed) {
 			canvas.width = targetW;
 			canvas.height = targetH;
 			this.lastDpr = dpr;
 		}
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return changed;
-		if(changed) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		if (changed) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		this.ctx = ctx;
 		return changed;
 	}
