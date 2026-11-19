@@ -79,10 +79,12 @@ function adaptAnalysisPayload(
 			|| (rawSeed !== undefined
 				&& (seed === null || seed === undefined || !Number.isSafeInteger(seed) || seed <= 0 || seed > 2_147_483_646))
 		) return null;
+		const outputVariable = readString(firstDefined(source.outputVariable, source.OutputVariable));
 		return {
 			type: analysisType,
 			sampleCount,
 			...(seed === undefined || seed === null ? {} : { seed }),
+			...(outputVariable ? { outputVariable } : {}),
 		};
 	}
 
@@ -90,6 +92,12 @@ function adaptAnalysisPayload(
 	const objectiveSource = firstRecord(source.objective, source.Objective);
 	if (!objectiveSource) return null;
 	const measurementId = readString(objectiveSource.measurementId ?? objectiveSource.id ?? objectiveSource.name);
+	const probeName = readString(firstDefined(
+		objectiveSource.outputVariable,
+		objectiveSource.OutputVariable,
+		objectiveSource.probeName,
+		objectiveSource.ProbeName,
+	));
 	const label = readOptionalString(objectiveSource.label);
 	const unit = readOptionalString(objectiveSource.unit);
 	if (!measurementId || label === null || unit === null) return null;
@@ -100,6 +108,7 @@ function adaptAnalysisPayload(
 			...(label ? { label } : {}),
 			...(unit ? { unit } : {}),
 		},
+		...(probeName ? { outputVariable: probeName } : {}),
 	};
 }
 

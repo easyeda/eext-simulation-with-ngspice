@@ -29,6 +29,7 @@ import type {
 	WorstCaseResponse,
 	WorstCaseRunResult,
 } from "./types";
+import { prepareWorstCaseObjective, type CurrentProbeSynthesis } from "./objective-synthesis";
 import { validateWorstCaseInput } from "./validation";
 
 export interface RunWorstCaseOptions {
@@ -48,8 +49,14 @@ export async function runWorstCaseAnalysis(
 	options: RunWorstCaseOptions,
 ): Promise<WorstCaseResponse> {
 	const logs: string[] = [`Run mode: ${engine.id} Worst Case`];
-	const objective = resolveWorstCaseObjective(options);
-	const validation = validateWorstCaseInput(netlist, options.objective);
+	const resolved = resolveWorstCaseObjective(options);
+	const prepared = prepareWorstCaseObjective(netlist, resolved);
+	logs.push(...prepared.logs);
+	const objective = prepared.objective;
+	// 目标测量由插件合成时，网表里注入的是 A/B 两条普通测量，跳过目标名存在性检查。
+	const validation = validateWorstCaseInput(prepared.netlist, options.objective, {
+		skipObjectiveLookup: prepared.synthesis !== null,
+	});
 	logs.push(...validation.warnings.map((warning) => `warning: ${warning}`));
 	if (!validation.ok || !validation.spiceCommandType || !validation.command) {
 		const error = validation.errors.join("\n") || "Worst Case validation failed";
@@ -84,9 +91,20 @@ export async function runWorstCaseAnalysis(
 		caseLogStats.clear();
 	};
 	try {
-		const opened = await engine.open(netlist, { probeNodes: options.probeNodes, compatMode: options.compatMode });
+		const opened = await engine.open(prepared.netlist, {
+			probeNodes: options.probeNodes,
+			compatMode: options.compatMode,
+		});
 		session = opened.session;
 		logs.push(...opened.logs);
+		// 合成测量的 A/B 是 μV 级差值，默认 6 位打印精度会把相减抹成 0，提到 14 位。
+		if (prepared.synthesis) {
+			try {
+				session.optionalCommand?.("set measureprec=14");
+			} catch (error) {
+				logs.push(`warning: set measureprec failed: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
 
 		const nominalExecution = await session.run({ captureWaveforms: true });
 		if (!nominalExecution.ok) {
@@ -115,6 +133,7 @@ export async function runWorstCaseAnalysis(
 			validation.spiceCommandType,
 			objective,
 			true,
+			prepared.synthesis,
 		);
 		runs.push(nominal);
 		pushCaseLogs(nominal);
@@ -147,6 +166,7 @@ export async function runWorstCaseAnalysis(
 				validation.spiceCommandType,
 				objective,
 				false,
+				prepared.synthesis,
 			);
 			runs.push(run);
 			pushCaseLogs(run);
@@ -168,6 +188,7 @@ export async function runWorstCaseAnalysis(
 			validation.spiceCommandType,
 			objective,
 			true,
+			prepared.synthesis,
 		);
 		const worstHigh = await executeCase(
 			session,
@@ -175,6 +196,7 @@ export async function runWorstCaseAnalysis(
 			validation.spiceCommandType,
 			objective,
 			true,
+			prepared.synthesis,
 		);
 		runs.push(worstLow, worstHigh);
 		pushCaseLogs(worstLow);
@@ -243,12 +265,13 @@ async function executeCase(
 	spiceCommandType: "transient" | "ac" | "dc",
 	objective: WorstCaseObjective,
 	captureWaveform: boolean,
+	synthesis: CurrentProbeSynthesis | null,
 ): Promise<WorstCaseRunResult> {
 	const execution = await session.run({
 		beforeRun: [{ kind: "alter-parameters", values: plan.assignments }],
 		captureWaveforms: captureWaveform,
 	});
-	return buildCaseResult(execution, plan, spiceCommandType, objective, captureWaveform);
+	return buildCaseResult(execution, plan, spiceCommandType, objective, captureWaveform, synthesis);
 }
 
 function buildCaseResult(
@@ -257,6 +280,7 @@ function buildCaseResult(
 	spiceCommandType: "transient" | "ac" | "dc",
 	objective: WorstCaseObjective,
 	captureWaveform: boolean,
+	synthesis: CurrentProbeSynthesis | null,
 ): WorstCaseRunResult {
 	const logs = execution.logs.map((message) => `${plan.id}: ${message}`);
 	if (!execution.ok) {
@@ -266,6 +290,23 @@ function buildCaseResult(
 	const decoded = decodeReservedMeasurements(execution.measurements);
 	if (decoded.errors.length) {
 		return failedCase(plan, spiceCommandType, decoded.errors.join("\n"), [...logs, ...decoded.errors]);
+	}
+	// 电流目标由 A/B 两条普通测量合成：(A-B)/电阻，作为目标值参与后续比较。
+	if (synthesis) {
+		const valueA = decoded.ordinary.find((measurement) => normalizeMeasurementId(measurement.name) === normalizeMeasurementId(synthesis.nameA));
+		const valueB = decoded.ordinary.find((measurement) => normalizeMeasurementId(measurement.name) === normalizeMeasurementId(synthesis.nameB));
+		if (!valueA || !valueB) {
+			return failedCase(
+				plan,
+				spiceCommandType,
+				`Objective measurement ${synthesis.id} was not returned (missing ${synthesis.nameA}/${synthesis.nameB})`,
+				logs,
+			);
+		}
+		decoded.ordinary.push({
+			name: synthesis.id,
+			value: (valueA.value - valueB.value) / synthesis.resistance,
+		});
 	}
 	// 相位测量（__JLC_PHASE_ 前缀）在 core 层已换算为度，作为普通测量一并参与
 	// objective 匹配；其单位标记为 deg。
@@ -318,6 +359,7 @@ export function resolveWorstCaseObjective(options: RunWorstCaseOptions): WorstCa
 			measurementId: classified.phaseName,
 			label: options.objective.label || classified.phaseName,
 			unit: options.objective.unit || "deg",
+			...(options.objective.probeName ? { probeName: options.objective.probeName } : {}),
 		};
 	}
 	return options.objective;

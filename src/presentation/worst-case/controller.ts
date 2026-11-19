@@ -10,6 +10,7 @@ import { t } from "../../shared/i18n";
 import type { ProbeTarget } from "../../shared/probe";
 import { downloadTextFile } from "../utils/download";
 import { buildWorstCaseOverlayDataset, buildWorstCaseProbeOptions, type WorstCaseProbeOption } from "../../features/worst-case/view-model";
+import { traceMatchesOutputVariable } from "../../shared/probe-display";
 import { sortWorstCaseRuns, worstCaseResultToCsv } from "../../features/worst-case/report";
 import type { WorstCaseObjective, WorstCaseResult } from "../../features/worst-case/types";
 
@@ -225,9 +226,25 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 			this.host.appendLog(t("wca.noWaveforms"));
 			return;
 		}
-		this.activeProbeId = this.probeOptions.some((option) => option.id === this.activeProbeId) ? this.activeProbeId : this.probeOptions[0].id;
+		this.activeProbeId = this.resolveActiveProbeId(result);
 		this.host.setDataset(buildWorstCaseOverlayDataset(result, this.probeOptions, this.activeProbeId));
 		this.host.setHighlightedTraceIds(null);
+	}
+
+	/**
+	 * 当前叠加哪条曲线：手动切换过的保持不变；否则跟随输出变量
+	 */
+	private resolveActiveProbeId(result: WorstCaseResult): string {
+		if (this.activeProbeId && this.probeOptions.some((option) => option.id === this.activeProbeId)) {
+			return this.activeProbeId;
+		}
+		const key = result.objective.probeName || result.objective.measurementId;
+		if (key) {
+			const matched = this.probeOptions.find((option) =>
+				traceMatchesOutputVariable(option.traceName, option.traceId, key, this.probeNodes()));
+			if (matched) return matched.id;
+		}
+		return this.probeOptions[0]?.id ?? "";
 	}
 
 	private highlightRun(runId: string): void {

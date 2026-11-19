@@ -20,6 +20,8 @@ export interface MonteCarloPayload {
 	sampleCount: number;
 	/** 可选。用于复现相同随机序列的 ngspice 正整数种子。 */
 	seed?: number;
+	/** 可选。仿真设置里选中的输出变量（探针位号，如 PRV1/PRI1） */
+	outputVariable?: string;
 }
 
 export interface WorstCasePayload {
@@ -27,13 +29,15 @@ export interface WorstCasePayload {
 	type: "worst-case";
 	/** 必填。引用网表中一个普通的、非保留名称的 .meas 结果。 */
 	objective: {
-		/** 必填。不区分大小写的 .meas 名称，用于确定参数的低侧和高侧方向。 */
+		/** 必填。不区分大小写的 .meas 名称，用于确定参数的低侧和高侧方向；显示层也会剥掉 MEAS_ 前缀借它匹配默认曲线（兜底）。 */
 		measurementId: string;
-		/** 可选。展示名称；省略时使用 measurementId。 */
+		/** 展示名称；省略时使用 measurementId。 */
 		label?: string;
-		/** 可选。展示和导出单位，不影响 ngspice 计算。 */
+		/** 展示和导出单位，不影响 ngspice 计算。 */
 		unit?: string;
 	};
+	/** 可选。仿真设置里选中的输出变量（探针位号，如 PRV1/PRI1） */
+	outputVariable?: string;
 }
 
 export type AnalysisPayload =
@@ -100,10 +104,13 @@ function parseAnalysisPayload(value: unknown): AnalysisPayload | null {
 			|| (value.seed !== undefined
 				&& (seed === null || seed === undefined || !Number.isSafeInteger(seed) || seed <= 0 || seed > 2_147_483_646))
 		) return null;
+		const outputVariable = readOptionalString(value.outputVariable);
+		if (outputVariable === null) return null;
 		return {
 			type: value.type,
 			sampleCount,
 			...(seed === undefined || seed === null ? {} : { seed }),
+			...(outputVariable ? { outputVariable } : {}),
 		};
 	}
 	if (value.type === "worst-case") {
@@ -111,14 +118,20 @@ function parseAnalysisPayload(value: unknown): AnalysisPayload | null {
 		const measurementId = readString(value.objective.measurementId);
 		const label = readOptionalString(value.objective.label);
 		const unit = readOptionalString(value.objective.unit);
-		if (!measurementId || label === null || unit === null) return null;
+		// 输出变量在顶层（与 MC 同名同义）；objective.probeName 为历史兼容位置。
+		const outputVariable = readOptionalString(value.outputVariable);
+		const probeName = readOptionalString(value.objective.probeName);
+		if (!measurementId || outputVariable === null || probeName === null || label === null || unit === null) return null;
+		const displayTarget = outputVariable || probeName;
 		return {
 			type: value.type,
 			objective: {
 				measurementId,
+				...(displayTarget ? { probeName: displayTarget } : {}),
 				...(label ? { label } : {}),
 				...(unit ? { unit } : {}),
 			},
+			...(displayTarget ? { outputVariable: displayTarget } : {}),
 		};
 	}
 	return null;

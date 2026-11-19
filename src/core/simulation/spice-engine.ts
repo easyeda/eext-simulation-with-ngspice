@@ -70,6 +70,8 @@ export interface SpiceExecutionSession {
 	setRandomSeed(seed: number): void;
 	run(request?: SpiceRunRequest): Promise<SpiceRunResult>;
 	dispose(): void;
+	/** 可选。执行 ngspice 命令，失败抛错；用于会话级 set 配置（如测量打印精度）。 */
+	optionalCommand?(command: string): void;
 }
 
 export interface OpenSpiceSessionResult {

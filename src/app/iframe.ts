@@ -295,6 +295,7 @@ fileInput.addEventListener('change', async () => {
 	netlistInput.value = await file.text();
 	sampleSelect.value = '';
 	currentProbeNodes = [];
+	monteCarloController.setOutputVariable(null);
 	setWorstCaseObjective(null);
 	analysisModeSelect.value = detectSpiceCommandType(netlistInput.value);
 	updateNetlistMeta(file.name);
@@ -310,6 +311,7 @@ sampleSelect.addEventListener('change', () => {
 	if (!key) return;
 	netlistInput.value = sampleNetlists[key];
 	currentProbeNodes = key === 'mcDivider' || key.startsWith('wc') ? [{ node: 'out' }] : [];
+	monteCarloController.setOutputVariable(null);
 	setWorstCaseObjective(worstCaseSampleObjectives[key] || null);
 	analysisModeSelect.value = key === 'mcDivider' ? 'monte-carlo' : key.startsWith('wc') ? 'worst-case' : detectSpiceCommandType(netlistInput.value);
 	updateNetlistMeta('', key);
@@ -323,6 +325,7 @@ sampleSelect.addEventListener('change', () => {
 
 netlistInput.addEventListener('input', () => {
 	currentProbeNodes = [];
+	monteCarloController.setOutputVariable(null);
 	setWorstCaseObjective(null);
 	analysisModeSelect.value = detectSpiceCommandType(netlistInput.value);
 	updateNetlistMeta();
@@ -351,6 +354,7 @@ clearButton.addEventListener('click', () => {
 	netlistInput.value = '';
 	sampleSelect.value = '';
 	currentProbeNodes = [];
+	monteCarloController.setOutputVariable(null);
 	setWorstCaseObjective(null);
 	currentCompatMode = undefined;
 	syncCompatSelect();
@@ -458,6 +462,7 @@ function applyImportedNetlist(imported: NetlistImportMessage) {
 
 function applyImportedRunOptions(imported: NetlistImportMessage) {
 	const monteCarlo = imported.analysis.type === 'monte-carlo' ? imported.analysis : null;
+	monteCarloController.setOutputVariable(monteCarlo?.outputVariable ?? null);
 	setWorstCaseObjective(imported.analysis.type === 'worst-case'
 		? normalizeWorstCaseObjective(imported.analysis)
 		: null);
@@ -493,6 +498,7 @@ function normalizeWorstCaseObjective(
 	return {
 		measurementId: analysis.objective.measurementId,
 		label: analysis.objective.label || analysis.objective.measurementId,
+		...(analysis.outputVariable ? { probeName: analysis.outputVariable } : {}),
 		...(analysis.objective.unit ? { unit: analysis.objective.unit } : {}),
 	};
 }

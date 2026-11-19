@@ -40,15 +40,14 @@ export function buildMonteCarloProbeOptionsFromTemplate(
 		for (const trace of findTraceVariantsForProbe(dataset, probe.node)) {
 			if (used.has(trace.id)) continue;
 			used.add(trace.id);
-			options.push({
-				id: normalizeProbeOptionId(trace.id),
-				label: dialogTraceLabel(trace.name, probeNames),
-				traceId: trace.id,
-				traceName: trace.name,
-				axisId: trace.axisId,
-				unit: trace.unit,
-			});
+			options.push(toProbeOption(trace, probeNames));
 		}
+	}
+	// XAM 电流探针曲线由两端电压差合成
+	for (const trace of dataset.traces) {
+		if (trace.axisId !== "current" || used.has(trace.id)) continue;
+		used.add(trace.id);
+		options.push(toProbeOption(trace, probeNames));
 	}
 
 	if (options.length) return options;
@@ -110,7 +109,24 @@ export function probeTraceNamesForProbes(dataset: WaveformDataset, probes: Probe
 			names.add(trace.id);
 		}
 	}
+	// 合成电流曲线不在探针节点里，白名单需一并放行，否则样本采集时被过滤掉。
+	for (const trace of dataset.traces) {
+		if (trace.axisId !== "current") continue;
+		names.add(trace.name);
+		names.add(trace.id);
+	}
 	return names;
+}
+
+function toProbeOption(trace: WaveformTrace, probeNames: Map<string, string>): MonteCarloProbeOption {
+	return {
+		id: normalizeProbeOptionId(trace.id),
+		label: dialogTraceLabel(trace.name, probeNames),
+		traceId: trace.id,
+		traceName: trace.name,
+		axisId: trace.axisId,
+		unit: trace.unit,
+	};
 }
 
 function normalizeTraceText(value: string): string {

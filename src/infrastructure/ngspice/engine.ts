@@ -58,6 +58,10 @@ class WasmExecutionSession implements SpiceExecutionSession {
 		this.session.command(`setseed ${Math.trunc(seed)}`);
 	}
 
+	optionalCommand(command: string): void {
+		this.session.optionalCommand(command);
+	}
+
 	async run(request: SpiceRunRequest = {}): Promise<SpiceRunResult> {
 		const logs: string[] = [];
 		try {

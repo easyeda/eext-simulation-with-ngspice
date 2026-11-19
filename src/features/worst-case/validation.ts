@@ -11,9 +11,14 @@ export interface WorstCaseValidationResult {
 	warnings: string[];
 }
 
+export interface WorstCaseValidationOptions {
+	skipObjectiveLookup?: boolean;
+}
+
 export function validateWorstCaseInput(
 	netlist: string,
 	objective: WorstCaseObjective,
+	options: WorstCaseValidationOptions = {},
 ): WorstCaseValidationResult {
 	const errors: string[] = [];
 	const warnings: string[] = [];
@@ -26,7 +31,7 @@ export function validateWorstCaseInput(
 	if (containsRandomParameterFunction(netlist)) errors.push("Worst Case netlist must use deterministic parameters, not random functions");
 
 	const directive = directives.length === 1 ? directives[0] : undefined;
-	validateObjective(objective, directive?.type, netlist, errors);
+	validateObjective(objective, directive?.type, netlist, errors, options.skipObjectiveLookup === true);
 	validateReservedDeclarations(netlist, errors);
 
 	return {
@@ -42,6 +47,7 @@ function validateObjective(
 	commandType: SpiceCommandType | undefined,
 	netlist: string,
 	errors: string[],
+	skipLookup: boolean,
 ): void {
 	if (!objective || typeof objective !== "object") {
 		errors.push("Worst Case objective is required");
@@ -55,7 +61,7 @@ function validateObjective(
 	if (classified.kind !== "ordinary" && classified.kind !== "phase") {
 		errors.push("Worst Case objective.measurementId must reference a non-reserved .meas result");
 	}
-	if (commandType && !hasMeasurement(netlist, objective.measurementId, commandType)) {
+	if (commandType && !skipLookup && !hasMeasurement(netlist, objective.measurementId, commandType)) {
 		errors.push(`Worst Case objective measurement ${objective.measurementId} was not found for ${commandType}`);
 	}
 }

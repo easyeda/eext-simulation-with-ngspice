@@ -20,6 +20,7 @@ import {
 	buildMonteCarloOverlayMetaFromStore,
 	type MonteCarloProbeOption,
 } from "../../features/monte-carlo/view-model";
+import { traceMatchesOutputVariable } from "../../shared/probe-display";
 import {
 	collectSampleMeasurementIds,
 	monteCarloResultToCsv,
@@ -66,6 +67,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 	private streamTotal = 0;
 	private streamQueued = false;
 	private streamNextRenderAt = 0;
+	private outputVariable: string | null = null;
 
 	private readonly app: HTMLElement;
 	private readonly status: HTMLElement;
@@ -125,6 +127,24 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 
 	getResult(): MonteCarloResult | null {
 		return this.result;
+	}
+
+	/** 设置输出变量：下一次渲染时优先选它对应的曲线。 */
+	setOutputVariable(outputVariable: string | null): void {
+		this.outputVariable = outputVariable?.trim() || null;
+	}
+
+	private resolveActiveProbeId(): string {
+		if (this.activeProbeId && this.probeOptions.some((option) => option.id === this.activeProbeId)) {
+			return this.activeProbeId;
+		}
+		const outputVariable = this.outputVariable;
+		if (outputVariable) {
+			const matched = this.probeOptions.find((option) =>
+				traceMatchesOutputVariable(option.traceName, option.traceId, outputVariable, this.probeNodes()));
+			if (matched) return matched.id;
+		}
+		return this.probeOptions[0]?.id ?? "";
 	}
 
 	selectedProbeLabel(): string {
@@ -351,7 +371,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 			this.host.appendLog(t("log.noOverlayProbe"));
 			return;
 		}
-		this.activeProbeId = this.probeOptions.some((option) => option.id === this.activeProbeId) ? this.activeProbeId : this.probeOptions[0].id;
+		this.activeProbeId = this.resolveActiveProbeId();
 		const store = result.waveformStore;
 		const template = result.representativeDatasets[0] || null;
 		const meta = store ? buildMonteCarloOverlayMetaFromStore(store, template, this.probeOptions, this.activeProbeId) : null;
@@ -466,7 +486,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 			this.probeOptions = buildMonteCarloProbeOptionsFromTemplate(this.streamTemplate, this.probeNodes());
 			if (!this.probeOptions.length) return;
 		}
-		this.activeProbeId = this.probeOptions.some((option) => option.id === this.activeProbeId) ? this.activeProbeId : this.probeOptions[0].id;
+		this.activeProbeId = this.resolveActiveProbeId();
 		const template = this.streamTemplate;
 		const meta = buildMonteCarloOverlayMetaFromStore(store, template, this.probeOptions, this.activeProbeId);
 		if (!meta) return;

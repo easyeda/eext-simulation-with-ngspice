@@ -29,6 +29,12 @@ export function buildWorstCaseProbeOptions(
 		used.add(trace.id);
 		options.push(toOption(trace, dialogTraceLabel(trace.name, probeNames)));
 	}
+	// XAM 电流探针曲线合成
+	for (const trace of dataset.traces) {
+		if (trace.axisId !== "current" || used.has(trace.id)) continue;
+		used.add(trace.id);
+		options.push(toOption(trace, dialogTraceLabel(trace.name, probeNames)));
+	}
 	if (options.length) return options;
 	return dataset.traces.slice(0, 1).map((trace) => toOption(trace, dialogTraceLabel(trace.name, probeNames)));
 }

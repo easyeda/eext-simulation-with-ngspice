@@ -6,6 +6,8 @@ export interface WorstCaseObjective {
 	measurementId: string;
 	label: string;
 	unit?: string;
+	/** 可选。仿真设置里的输出变量（探针位号） */
+	probeName?: string;
 }
 
 export type WorstCaseRunKind =
