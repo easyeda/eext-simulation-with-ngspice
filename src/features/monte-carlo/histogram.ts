@@ -13,7 +13,7 @@ export interface HistogramSampleValue {
 export interface HistogramMeasurement {
 	id: string;
 	label: string;
-	/** 可选。测量值单位，如相位测量的 "deg"。 */
+	/** 可选。测量值单位，如相位测量的 "°"。 */
 	unit?: string;
 	values: HistogramSampleValue[];
 	summary: MonteCarloSummary;

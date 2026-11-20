@@ -1,5 +1,5 @@
 import type { AnalysisType } from "../../shared/analysis-types";
-import { findAnalysisDirectives } from "../../shared/netlist";
+import { findAnalysisDirectives, normalizePhaseUnit } from "../../shared/netlist";
 import {
 	EDA_NETLIST_PROTOCOL_VERSION,
 	parseNetlistImportMessage,
@@ -99,8 +99,10 @@ function adaptAnalysisPayload(
 		objectiveSource.ProbeName,
 	));
 	const label = readOptionalString(objectiveSource.label);
-	const unit = readOptionalString(objectiveSource.unit);
-	if (!measurementId || label === null || unit === null) return null;
+	const rawUnit = readOptionalString(objectiveSource.unit);
+	if (rawUnit === null) return null;
+	const unit = normalizePhaseUnit(rawUnit);
+	if (!measurementId || label === null) return null;
 	return {
 		type: analysisType,
 		objective: {

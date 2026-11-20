@@ -21,6 +21,7 @@ import {
 	type MonteCarloProbeOption,
 } from "../../features/monte-carlo/view-model";
 import { traceMatchesOutputVariable } from "../../shared/probe-display";
+import { unwrapPhaseSeries } from "../../shared/phase-unwrap";
 import {
 	collectSampleMeasurementIds,
 	monteCarloResultToCsv,
@@ -123,6 +124,8 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		this.countButton.addEventListener("click", () => this.setYAxisMode("count"));
 		this.percentButton.addEventListener("click", () => this.setYAxisMode("percent"));
 		this.specToggle.addEventListener("change", () => this.histogramChart.setSpecVisible(this.specToggle.checked));
+		// 解卷绕开关变化
+		this.host.onPhaseUnwrapChanged?.(() => this.reRenderPhaseSensitiveOverlay());
 	}
 
 	getResult(): MonteCarloResult | null {
@@ -149,6 +152,25 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 
 	selectedProbeLabel(): string {
 		return this.probeOptions.find((item) => item.id === this.activeProbeId)?.label || this.activeProbeId || "-";
+	}
+
+	private displaySeriesValues(axisId: string, values: Float32Array): Float32Array {
+		return axisId === "phase" && this.host.isPhaseUnwrapEnabled?.() === true
+			? unwrapPhaseSeries(values)
+			: values;
+	}
+
+	/** 解卷绕开关变化：优先重出全量结果；流式进行中则清空画布全量重画。 */
+	private reRenderPhaseSensitiveOverlay(): void {
+		if (!this.overlayCanvas) return;
+		if (this.result) {
+			this.renderWaveforms(this.result);
+			return;
+		}
+		if (this.streamStore) {
+			this.overlayCanvas.clear();
+			this.renderStreamingOverlay();
+		}
 	}
 
 	present(result: MonteCarloResult): void {
@@ -390,7 +412,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 			this.overlayCanvas!.addSample({
 				sampleIndex: series.sampleIndex,
 				time: series.time,
-				values: series.values,
+				values: this.displaySeriesValues(meta.axisId, series.values),
 				color: sampleColorFor(series.sampleIndex),
 			});
 		}
@@ -415,7 +437,9 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 		let gMin = Number.POSITIVE_INFINITY;
 		let gMax = Number.NEGATIVE_INFINITY;
 		for (const series of store.getSeries(meta.traceName)) {
-			for (const value of series.values) {
+			// 撑轴范围与叠加样本用同一份显示值（相位解卷绕开启时为解卷绕序列）。
+			const values = this.displaySeriesValues(meta.axisId, series.values);
+			for (const value of values) {
 				if (!Number.isFinite(value)) continue;
 				if (value < gMin) gMin = value;
 				if (value > gMax) gMax = value;
@@ -509,7 +533,7 @@ export class MonteCarloController implements AnalysisTraceChoiceController {
 			this.overlayCanvas!.addSample({
 				sampleIndex: series.sampleIndex,
 				time: series.time,
-				values: series.values,
+				values: this.displaySeriesValues(meta.axisId, series.values),
 				color: sampleColorFor(series.sampleIndex),
 			});
 		}

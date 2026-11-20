@@ -132,6 +132,8 @@
 	"tooltip.resizeNetlist": "Drag to resize the netlist panel",
 	"tooltip.fitWaveform": "Fit to window",
 	"tooltip.selectTraces": "Select visible waveforms",
+	"action.phaseUnwrap": "Unwrap",
+	"tooltip.phaseUnwrap": "Unwrap phase: accumulate ±360° when crossing ±180°",
 	"tooltip.displayMode": "Switch line / point display",
 	"tooltip.cursorMode": "Switch value cursor mode",
 	"tooltip.fitHistogram": "Restore the full histogram range",

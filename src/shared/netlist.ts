@@ -60,10 +60,18 @@ export function inferAxisId(name: string, unitHint = ""): string {
 	return "voltage";
 }
 
+/** 相位显示单位 */
+export const PHASE_UNIT = "°";
+
 export function inferUnit(name: string, axisId: string): string {
 	const text = name.toLowerCase();
-	if (axisId === "phase") return "deg";
+	if (axisId === "phase") return PHASE_UNIT;
 	if (axisId === "gain") return "dB";
 	if (axisId === "current" || /^i\(/.test(text)) return "A";
 	return "V";
+}
+
+/** 协议层传入的相位单位归一：历史值 "deg" → "°" */
+export function normalizePhaseUnit(unit: string | undefined): string | undefined {
+	return unit?.trim().toLowerCase() === "deg" ? PHASE_UNIT : unit;
 }

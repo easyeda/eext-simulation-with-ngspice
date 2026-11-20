@@ -4,6 +4,7 @@ import {
 } from "../../core/analysis/reserved-measurements";
 import type { SpiceEngine, SpiceMeasurement } from "../../core/simulation/spice-engine";
 import { trimLogs } from "../../shared/logs";
+import { PHASE_UNIT } from "../../shared/netlist";
 import type { ProbeTarget } from "../../shared/probe";
 import type { WaveformDataset } from "../../shared/waveform";
 import { probeTraceNamesForProbes } from "./view-model";
@@ -252,7 +253,7 @@ function decodeMonteCarloSample(measurements: SpiceMeasurement[]): DecodedMonteC
 			id,
 			name: entry.phaseName,
 			value: entry.measurement.value,
-			unit: "deg",
+			unit: PHASE_UNIT,
 			...(entry.measurement.raw ? { raw: entry.measurement.raw } : {}),
 		});
 	}

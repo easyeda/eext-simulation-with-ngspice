@@ -1,4 +1,4 @@
-import { detectSpiceCommandType, findAnalysisCommand, inferAxisId, inferUnit } from "../../shared/netlist";
+import { detectSpiceCommandType, findAnalysisCommand, inferAxisId, inferUnit, PHASE_UNIT } from "../../shared/netlist";
 import type { AnalysisType, SpiceCommandType } from "../../shared/analysis-types";
 import {
 	dcSourceKindFromScaleName,
@@ -337,7 +337,7 @@ function vectorToTraces(vector: NgspiceRawVector, scale: NgspiceRawVector, type:
 		}
 		return [
 			{ id: slugify(`gain-${vector.qualifiedName}`), name: `${displayName} gain`, axisId: "gain", unit: "dB", points: gain },
-			{ id: slugify(`phase-${vector.qualifiedName}`), name: `${displayName} phase`, axisId: "phase", unit: "deg", points: phase },
+			{ id: slugify(`phase-${vector.qualifiedName}`), name: `${displayName} phase`, axisId: "phase", unit: PHASE_UNIT, points: phase },
 		].filter((trace) => trace.points.length);
 	}
 

@@ -1,6 +1,14 @@
 export function normalizeNetlistForNgspice(netlist: string): { netlist: string; logs: string[] } {
 	const logs: string[] = [];
-	const normalized = netlist.split(/\r?\n/).map((line) => normalizeAcCommandLine(line, logs)).join("\n");
+	const lines = netlist.split(/\r?\n/);
+	// SPICE 规范第一行是标题、不参与解析；上游丢失标题时第一行会是元件/命令行，
+	// 不补一行标题它就会被当标题丢弃（表现为工作点奇异、激励丢失）。
+	const first = lines.find((line) => line.trim()) ?? "";
+	if (!/^\s*\*/.test(first)) {
+		lines.unshift("* auto-generated title");
+		logs.push("Netlist has no title line; prepended one to protect the first element line");
+	}
+	const normalized = lines.map((line) => normalizeAcCommandLine(line, logs)).join("\n");
 	return { netlist: normalized, logs };
 }
 

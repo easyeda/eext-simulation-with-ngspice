@@ -161,6 +161,7 @@ const waveformController: WaveformController = new WaveformController(chart, {
 	traceSelectButton,
 	displayButton,
 	displayLabel,
+	phaseUnwrapButton: query<HTMLButtonElement>('#phaseUnwrapButton'),
 	cursorModeButton,
 	cursorModeLabel,
 	exportButton: waveformExportButton,

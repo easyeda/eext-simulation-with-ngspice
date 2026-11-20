@@ -10,6 +10,7 @@ import type {
 	SpiceRunResult,
 } from "../../core/simulation/spice-engine";
 import { trimLogs } from "../../shared/logs";
+import { PHASE_UNIT } from "../../shared/netlist";
 import type { ProbeTarget } from "../../shared/probe";
 import type { VariationParameter } from "../../shared/variation";
 import type { WaveformDataset } from "../../shared/waveform";
@@ -309,7 +310,7 @@ function buildCaseResult(
 		});
 	}
 	// 相位测量（__JLC_PHASE_ 前缀）在 core 层已换算为度，作为普通测量一并参与
-	// objective 匹配；其单位标记为 deg。
+	// objective 匹配；其单位标记为 °。
 	const phaseIds = new Set(decoded.phase.keys());
 	const measurements = readWorstCaseMeasurements(
 		[
@@ -350,7 +351,7 @@ function buildCaseResult(
 
 /**
  * 解析相位 objective：EDA 传的 measurementId 可以带 __JLC_PHASE_ 前缀（例如
- * __JLC_PHASE_PHASE_100），这里剥离前缀得到真实测量名，并默认单位为 deg。
+ * __JLC_PHASE_PHASE_100），这里剥离前缀得到真实测量名，并默认单位为 °。
  */
 export function resolveWorstCaseObjective(options: RunWorstCaseOptions): WorstCaseObjective {
 	const classified = classifyMeasurementName(options.objective.measurementId);
@@ -358,7 +359,7 @@ export function resolveWorstCaseObjective(options: RunWorstCaseOptions): WorstCa
 		return {
 			measurementId: classified.phaseName,
 			label: options.objective.label || classified.phaseName,
-			unit: options.objective.unit || "deg",
+			unit: options.objective.unit || PHASE_UNIT,
 			...(options.objective.probeName ? { probeName: options.objective.probeName } : {}),
 		};
 	}
@@ -422,7 +423,7 @@ function readWorstCaseMeasurements(
 	return measurements.map((measurement) => {
 		const id = normalizeMeasurementId(measurement.name);
 		const isObjective = id === objectiveId;
-		const phaseUnit = phaseIds.has(id) ? "deg" : undefined;
+		const phaseUnit = phaseIds.has(id) ? PHASE_UNIT : undefined;
 		return {
 			id,
 			name: measurement.name,

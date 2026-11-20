@@ -10,7 +10,6 @@ import {
 	escapeHtml,
 	formatInspectionValue,
 	formatInteger,
-	labelForAnalysis,
 	makeAxisLabelFormatter,
 	readableAxisRange,
 } from "../components/chart-kit/axis-format";
@@ -333,8 +332,6 @@ export class WaveformChart extends ChartBase {
     const badgeItems = isMcScaffold
       ? [dataset.meta.sourcePlot ? escapeHtml(dataset.meta.sourcePlot) : "Monte Carlo"]
       : [
-        labelForAnalysis(dataset.spiceCommandType),
-        dataset.command ? escapeHtml(dataset.command) : "",
         t("chart.traceCount", visibleTraces.filter((trace) => !trace.name.startsWith("__")).length, dataset.traces.filter((trace) => !trace.name.startsWith("__")).length),
         t("chart.pointCount", formatInteger(visibleTraces.reduce((sum, trace) => sum + trace.points.length, 0))),
         dataset.meta.sweep?.incomplete ? escapeHtml(t("dc.incomplete")) : "",

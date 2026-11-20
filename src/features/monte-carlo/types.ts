@@ -13,7 +13,7 @@ export interface MonteCarloMeasurementConfig {
 	label?: string;
 	source?: MonteCarloMeasurementSource;
 	spec?: MonteCarloSpecLimit;
-	/** 可选。测量值单位，如相位测量的 "deg"。 */
+	/** 可选。测量值单位 */
 	unit?: string;
 }
 
@@ -23,7 +23,7 @@ export interface MonteCarloMeasurement {
 	label: string;
 	source: MonteCarloMeasurementSource;
 	value: number;
-	/** 可选。测量值单位，如相位测量的 "deg"。 */
+	/** 可选。测量值单位 */
 	unit?: string;
 	raw?: string;
 }
@@ -47,7 +47,7 @@ export interface MonteCarloSampleProgress {
 export interface MonteCarloSummary {
 	measurementId: string;
 	label: string;
-	/** 可选。测量值单位，如相位测量的 "deg"。 */
+	/** 可选。测量值单位 */
 	unit?: string;
 	count: number;
 	min: number;

@@ -36,7 +36,7 @@ export function prettyMeasurementId(value: string): string {
 	return value.replace(/_/g, " ");
 }
 
-/** 测量项展示名，相位测量等带单位时追加 " (deg)" 之类标注。 */
+/** 测量项展示名，相位测量等带单位时追加 " (°)" 之类标注。 */
 export function measurementLabelWithUnit(label: string, unit?: string): string {
 	return unit ? `${label} (${unit})` : label;
 }

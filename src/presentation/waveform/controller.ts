@@ -7,6 +7,7 @@ import { downloadTextFile } from "../utils/download";
 import { exportWaveformDatasets } from "./download";
 import { analysisTitle, escapeHtml, formatInteger, formatNumber } from "../utils/format";
 import { filterAnalogResult } from "../../features/logic/logic-data";
+import { datasetHasPhaseTraces, unwrapDatasetForDisplay } from "../../shared/phase-unwrap";
 import { traceColorAt, WaveformChart } from "./chart";
 import { extent } from "./series-data";
 import { mountDataTable, type DataTableRow } from "../components/data-table";
@@ -17,6 +18,7 @@ export interface WaveformControllerElements {
 	traceSelectButton: HTMLButtonElement;
 	displayButton: HTMLButtonElement;
 	displayLabel: HTMLElement;
+	phaseUnwrapButton: HTMLButtonElement;
 	cursorModeButton: HTMLButtonElement;
 	cursorModeLabel: HTMLElement;
 	exportButton: HTMLButtonElement;
@@ -58,6 +60,9 @@ export class WaveformController implements AnalysisOverlayHost {
 	private selectedGroupIndex: number | null = null;
 	/** 节点 → 探针位号映射，用于弹窗与导出表头。 */
 	private probeDisplayNames = new Map<string, string>();
+	/** 相位解卷绕开关 */
+	private phaseUnwrapEnabled = false;
+	private phaseUnwrapListeners = new Set<() => void>();
 
 	/** 设置探针位号映射：传给画布，弹窗若打开则重绘。 */
 	setProbeNodes(probeNodes: ProbeTarget[]): void {
@@ -83,6 +88,12 @@ export class WaveformController implements AnalysisOverlayHost {
 		elements.traceSelectButton.addEventListener("click", () => this.showTraceDialog());
 		elements.displayButton.addEventListener("click", () => {
 			elements.displayLabel.textContent = this.chart.cycleDisplayMode();
+		});
+		elements.phaseUnwrapButton.addEventListener("click", () => {
+			this.phaseUnwrapEnabled = !this.phaseUnwrapEnabled;
+			elements.phaseUnwrapButton.classList.toggle("active", this.phaseUnwrapEnabled);
+			this.rerenderForPhaseUnwrap();
+			for (const listener of this.phaseUnwrapListeners) listener();
 		});
 		elements.cursorModeButton.addEventListener("click", () => {
 			elements.cursorModeLabel.textContent = this.chart.cycleCursorMode();
@@ -129,6 +140,7 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.chart.setStaleResult(false);
 		this.hideDcGroupsPanel();
 		this.updateExportState();
+		this.updatePhaseUnwrapButton();
 	}
 
 	markStaleResult(): void {
@@ -148,6 +160,7 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.chart.setVisibleTraceIds(null, false);
 		this.chart.setDataset(dataset, { keepView: opts?.keepView === true });
 		this.updateExportState();
+		this.updatePhaseUnwrapButton();
 	}
 
 	getPlotGeometry() {
@@ -160,6 +173,16 @@ export class WaveformController implements AnalysisOverlayHost {
 
 	getDisplayMode(): "line" | "points" | "both" {
 		return this.chart.getDisplayMode();
+	}
+
+	/** 相位解卷绕开关状态（MC/WC 叠加层同步）。 */
+	isPhaseUnwrapEnabled(): boolean {
+		return this.phaseUnwrapEnabled;
+	}
+
+	onPhaseUnwrapChanged(callback: () => void): () => void {
+		this.phaseUnwrapListeners.add(callback);
+		return () => this.phaseUnwrapListeners.delete(callback);
 	}
 
 	getDataset(): WaveformDataset | null {
@@ -187,6 +210,27 @@ export class WaveformController implements AnalysisOverlayHost {
 	setRunning(running: boolean): void {
 		this.running = running;
 		this.updateExportState();
+	}
+
+	/** 切换解卷绕后重绘当前显示；MC/WC 叠加由它们的监听者自行重绘。 */
+	private rerenderForPhaseUnwrap(): void {
+		if (this.isAnalysisOverlayActive()) return;
+		if (this.result) {
+			this.activateDataset(this.activeDatasetId || this.result.datasets[0]?.id || "");
+			return;
+		}
+		this.chart.setDataset(null);
+	}
+
+	/** 当前激活的是 MC scaffold / WC 叠加数据集（它们的重绘由各自 controller 负责）。 */
+	private isAnalysisOverlayActive(): boolean {
+		const id = this.activeDatasetId || "";
+		return id === "mc-scaffold" || id.startsWith("wc-overlay");
+	}
+
+	/** 数据集没有相位曲线时按钮置灰（瞬态/DC 恒灰）。 */
+	private updatePhaseUnwrapButton(): void {
+		this.elements.phaseUnwrapButton.disabled = !datasetHasPhaseTraces(this.getDataset());
 	}
 
 	refreshLocale(localizeTitles: boolean): void {
@@ -253,7 +297,7 @@ export class WaveformController implements AnalysisOverlayHost {
 		this.activeDatasetId = dataset?.id || null;
 		const selected = dataset ? this.ensureTraceSelection(dataset) : null;
 		this.chart.setVisibleTraceIds(selected, false);
-		this.chart.setDataset(dataset);
+		this.chart.setDataset(dataset ? unwrapDatasetForDisplay(dataset, this.phaseUnwrapEnabled) : null);
 		this.chart.setHighlightedTraceIds(null);
 		this.selectedGroupIndex = null;
 		this.elements.displayLabel.textContent = this.chart.getDisplayLabel();
@@ -263,6 +307,7 @@ export class WaveformController implements AnalysisOverlayHost {
 		});
 		this.renderDcGroupsPanel();
 		this.updateExportState();
+		this.updatePhaseUnwrapButton();
 	}
 
 	private defaultTraceSelection(dataset: WaveformDataset, result = this.result): Set<string> {

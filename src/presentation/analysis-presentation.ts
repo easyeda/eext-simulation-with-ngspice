@@ -33,6 +33,10 @@ export interface AnalysisOverlayHost {
 	onChartAfterRender?(callback: () => void): () => void;
 	/** 可选。当前显示模式（线/点/线+点），供叠加画布同步。 */
 	getDisplayMode?(): "line" | "points" | "both";
+	/** 可选。相位解卷绕开关状态 */
+	isPhaseUnwrapEnabled?(): boolean;
+	/** 可选。订阅解卷绕开关变化，返回取消函数。 */
+	onPhaseUnwrapChanged?(callback: () => void): () => void;
 }
 
 export interface AnalysisPresentationController {

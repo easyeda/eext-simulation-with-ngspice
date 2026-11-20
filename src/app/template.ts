@@ -128,6 +128,10 @@ export const iframeTemplate = `
                   ${iconHtml('display')}
                   <span data-i18n="display.label">显示：</span><span id="displayLabel">仅线</span>
                 </button>
+                <button id="phaseUnwrapButton" class="tool-button" type="button" title="相位解卷绕：跨 ±180° 时连续累计 360°" data-i18n-title="tooltip.phaseUnwrap" disabled>
+                  ${iconHtml('unwrap')}
+                  <span data-i18n="action.phaseUnwrap">解卷绕</span>
+                </button>
                 <button id="cursorModeButton" class="tool-button active" type="button" title="切换数值线模式" data-i18n-title="tooltip.cursorMode">
                   ${iconHtml('cursor')}
                   <span data-i18n="cursor.label">数值：</span><span id="cursorModeLabel">跟随</span>

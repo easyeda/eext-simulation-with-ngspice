@@ -34,7 +34,13 @@ export function formatInspectionValue(
 	if (!Number.isFinite(value)) return "";
 	const displayUnit = axisDisplayUnit(unit, min, max, value);
 	const formatted = formatCanvasNumber(value / displayUnit.factor);
-	return displayUnit.label ? `${formatted} ${displayUnit.label}` : formatted;
+	return appendUnit(formatted, displayUnit.label);
+}
+
+/** 单位贴合规则：° 紧贴数字（-90°），其余单位与数字之间留空格。 */
+function appendUnit(text: string, unit: string): string {
+	if (!unit) return text;
+	return unit === "°" ? `${text}${unit}` : `${text} ${unit}`;
 }
 
 export function makeAxisLabelFormatter(
@@ -137,8 +143,7 @@ function formatAxisValue(value: number, unit: string): string {
 	if (unit === "s") return scaleUnit(value, [["s", 1], ["ms", 1e-3], ["us", 1e-6], ["ns", 1e-9], ["ps", 1e-12]]);
 	if (unit === "V") return scaleUnit(value, [["kV", 1e3], ["V", 1], ["mV", 1e-3], ["uV", 1e-6]]);
 	if (unit === "A") return scaleUnit(value, [["A", 1], ["mA", 1e-3], ["uA", 1e-6], ["nA", 1e-9]]);
-	const formatted = formatCanvasNumber(value);
-	return unit ? `${formatted} ${unit}` : formatted;
+	return appendUnit(formatCanvasNumber(value), unit);
 }
 
 function scaleUnit(value: number, units: Array<[string, number]>): string {
@@ -160,7 +165,7 @@ function formatAxisTickValue(
 
 	const unitGroup = unitScaleGroup(unit);
 	if (!unitGroup) {
-		return `${formatCanvasNumber(value)}${unit ? ` ${unit}` : ""}`;
+		return appendUnit(formatCanvasNumber(value), unit);
 	}
 
 	const selected = selectAxisUnit(unitGroup, min, max, value);

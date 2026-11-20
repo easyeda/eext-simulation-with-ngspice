@@ -1,4 +1,5 @@
 import type { SpiceCommandType } from "../../shared/analysis-types";
+import { normalizePhaseUnit } from "../../shared/netlist";
 import {
 	parseProbeDescriptors,
 	type ProbeDescriptor,
@@ -117,7 +118,9 @@ function parseAnalysisPayload(value: unknown): AnalysisPayload | null {
 		if (!isRecord(value.objective)) return null;
 		const measurementId = readString(value.objective.measurementId);
 		const label = readOptionalString(value.objective.label);
-		const unit = readOptionalString(value.objective.unit);
+		const rawUnit = readOptionalString(value.objective.unit);
+		if (rawUnit === null) return null;
+		const unit = normalizePhaseUnit(rawUnit);
 		// 输出变量在顶层（与 MC 同名同义）；objective.probeName 为历史兼容位置。
 		const outputVariable = readOptionalString(value.outputVariable);
 		const probeName = readOptionalString(value.objective.probeName);

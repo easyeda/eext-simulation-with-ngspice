@@ -2,6 +2,7 @@ import type { ProbeTarget } from "../../shared/probe";
 import type { WaveformDataset, WaveformTrace } from "../../shared/waveform";
 import { probeNameCandidates } from "../../shared/probe-names";
 import { dialogTraceLabel, probeNameByNode } from "../../shared/probe-display";
+import { unwrapPhaseTrace } from "../../shared/phase-unwrap";
 import type { WorstCaseResult, WorstCaseRunResult } from "./types";
 import { worstCaseTechnicalRunLabel } from "./case-label";
 
@@ -24,10 +25,12 @@ export function buildWorstCaseProbeOptions(
 	const options: WorstCaseProbeOption[] = [];
 	const used = new Set<string>();
 	for (const probe of probeNodes) {
-		const trace = findTraceForProbe(dataset, probe.node);
-		if (!trace || used.has(trace.id)) continue;
-		used.add(trace.id);
-		options.push(toOption(trace, dialogTraceLabel(trace.name, probeNames)));
+		// AC 下同节点拆 gain/phase 两条，都作为独立选项（与 MC 一致）。
+		for (const trace of findTraceVariantsForProbe(dataset, probe.node)) {
+			if (used.has(trace.id)) continue;
+			used.add(trace.id);
+			options.push(toOption(trace, dialogTraceLabel(trace.name, probeNames)));
+		}
 	}
 	// XAM 电流探针曲线合成
 	for (const trace of dataset.traces) {
@@ -43,6 +46,8 @@ export function buildWorstCaseOverlayDataset(
 	result: WorstCaseResult,
 	options: WorstCaseProbeOption[],
 	probeId: string,
+	/** 可选。相位解卷绕开启时，相位曲线拷贝为连续相位副本（仅显示层）。 */
+	unwrapPhase = false,
 ): WaveformDataset | null {
 	const option = options.find((item) => item.id === probeId) || options[0];
 	const firstDataset = result.finalDatasets[0];
@@ -55,8 +60,9 @@ export function buildWorstCaseOverlayDataset(
 			|| findTraceForProbe(sourceDataset, option.label)
 			|| sourceDataset.traces.find((trace) => normalizeTraceText(trace.name) === normalizeTraceText(option.traceName));
 		if (!sourceTrace) continue;
+		const displayTrace = unwrapPhase ? unwrapPhaseTrace(sourceTrace) : sourceTrace;
 		traces.push({
-			...sourceTrace,
+			...displayTrace,
 			id: `wc-${run.id}-${option.id}`,
 			name: worstCaseTechnicalRunLabel(run),
 			color: runColor(run),
@@ -106,6 +112,15 @@ function findTraceForProbe(dataset: WaveformDataset, probe: string): WaveformTra
 		const candidates = [...probeNameCandidates(trace.name), ...probeNameCandidates(trace.id)];
 		return candidates.some((candidate) => wanted.has(candidate));
 	}) || null;
+}
+
+/** 找出探针节点对应的所有 trace（AC 下同节点会有 gain 与 phase 两条）。 */
+function findTraceVariantsForProbe(dataset: WaveformDataset, probe: string): WaveformTrace[] {
+	const wanted = new Set(probeNameCandidates(probe));
+	return dataset.traces.filter((trace) => {
+		const candidates = [...probeNameCandidates(trace.name), ...probeNameCandidates(trace.id)];
+		return candidates.some((candidate) => wanted.has(candidate));
+	});
 }
 
 function normalizeTraceText(value: string): string {

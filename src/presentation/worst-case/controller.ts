@@ -60,6 +60,10 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 		this.casesTable = elements.casesTable;
 		this.app = elements.app;
 		this.exportButton.addEventListener("click", () => this.exportCsv());
+		// 解卷绕开关变化
+		this.host.onPhaseUnwrapChanged?.(() => {
+			if (this.result) this.renderWaveforms(this.result);
+		});
 	}
 
 	setObjective(objective: WorstCaseObjective | null): void {
@@ -227,7 +231,12 @@ export class WorstCaseController implements AnalysisTraceChoiceController {
 			return;
 		}
 		this.activeProbeId = this.resolveActiveProbeId(result);
-		this.host.setDataset(buildWorstCaseOverlayDataset(result, this.probeOptions, this.activeProbeId));
+		this.host.setDataset(buildWorstCaseOverlayDataset(
+			result,
+			this.probeOptions,
+			this.activeProbeId,
+			this.host.isPhaseUnwrapEnabled?.() === true,
+		));
 		this.host.setHighlightedTraceIds(null);
 	}
 

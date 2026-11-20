@@ -9,6 +9,7 @@ import {
 	Play,
 	Scan,
 	Trash2,
+	Waves,
 	createElement,
 	type IconNode,
 } from 'lucide';
@@ -23,7 +24,8 @@ export type AppIconName =
 	| 'import'
 	| 'restore'
 	| 'run'
-	| 'traces';
+	| 'traces'
+	| 'unwrap';
 
 const APP_ICONS: Record<AppIconName, IconNode> = {
 	clear: Trash2,
@@ -36,6 +38,7 @@ const APP_ICONS: Record<AppIconName, IconNode> = {
 	restore: Minimize2,
 	run: Play,
 	traces: ListChecks,
+	unwrap: Waves,
 };
 
 export function iconHtml(name: AppIconName): string {

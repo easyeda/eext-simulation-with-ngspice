@@ -132,6 +132,8 @@
 	"tooltip.resizeNetlist": "拖动调整网表宽度",
 	"tooltip.fitWaveform": "适应窗口",
 	"tooltip.selectTraces": "选择显示波形",
+	"action.phaseUnwrap": "解卷绕",
+	"tooltip.phaseUnwrap": "相位解卷绕：跨 ±180° 时连续累计 360°",
 	"tooltip.displayMode": "切换线/点显示",
 	"tooltip.cursorMode": "切换数值线模式",
 	"tooltip.fitHistogram": "恢复完整直方图范围",
